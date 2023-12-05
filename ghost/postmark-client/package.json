@@ -1,6 +1,6 @@
 {
   "name": "@tryghost/postmark-client",
-  "version": "0.0.0",
+  "version": "5.75.1",
   "repository": "https://github.com/TryGhost/Ghost/tree/main/packages/postmark-client",
   "author": "madewithlove",
   "private": true,

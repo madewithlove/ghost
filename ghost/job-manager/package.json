@@ -1,7 +1,7 @@
 {
   "name": "@tryghost/job-manager",
   "private": true,
-  "version": "0.0.0",
+  "version": "5.75.1",
   "author": "Ghost Foundation",
   "license": "MIT",
   "main": "index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tryghost/link-redirects",
-  "version": "0.0.0",
+  "version": "5.75.1",
   "repository": "https://github.com/TryGhost/Ghost/tree/main/packages/link-redirects",
   "author": "Ghost Foundation",
   "private": true,

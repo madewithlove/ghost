@@ -1,6 +1,6 @@
 {
   "name": "@tryghost/external-media-inliner",
-  "version": "0.0.0",
+  "version": "5.75.1",
   "repository": "https://github.com/TryGhost/Ghost/tree/main/packages/external-media-inliner",
   "author": "Ghost Foundation",
   "private": true,

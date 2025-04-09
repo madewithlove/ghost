@@ -1,5 +1,3 @@
-const PostmarkClient = require('@tryghost/postmark-client');
-
 const EVENT_FILTER = 'delivered OR opened OR failed OR unsubscribed OR complained';
 const PAGE_LIMIT = 300;
 const DEFAULT_TAGS = ['bulk-email'];
@@ -7,8 +5,8 @@ const DEFAULT_TAGS = ['bulk-email'];
 class EmailAnalyticsProviderPostmark {
     postmarkClient;
 
-    constructor({config, settings}) {
-        this.postmarkClient = new PostmarkClient({config, settings});
+    constructor({client, config}) {
+        this.postmarkClient = client;
         this.tags = [...DEFAULT_TAGS];
 
         if (config.get('bulkEmail:mailgun:tag')) {

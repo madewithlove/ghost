@@ -78,7 +78,6 @@
     "@tryghost/domain-events": "0.0.0",
     "@tryghost/donations": "0.0.0",
     "@tryghost/email-addresses": "0.0.0",
-    "@tryghost/email-analytics-provider-postmark": "0.0.0",
     "@tryghost/email-mock-receiver": "0.3.8",
     "@tryghost/email-service": "0.0.0",
     "@tryghost/email-suppression-list": "0.0.0",

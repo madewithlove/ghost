@@ -13,7 +13,8 @@ class MailAdapterBase {
                     'removeUnsubscribe',
                     'normalizeEvent',
                     'getBatchSize',
-                    'isConfigured'
+                    'isConfigured',
+                    'getAnalyticsProvider',
                 ],
                 writable: false
             });

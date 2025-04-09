@@ -48,7 +48,7 @@ class EmailAnalyticsServiceWrapper {
             eventProcessor,
             providers: [
                 adapterManager.getAdapter('mail', 'mailgun', {config, settings}).getAnalyticsProvider(),
-                adapterManager.getAdapter('mail', 'postmark', {config, settings}).getAnalyticsProvider(),
+                adapterManager.getAdapter('mail', 'postmark', {config, settings}).getAnalyticsProvider()
             ],
             queries,
             domainEvents,

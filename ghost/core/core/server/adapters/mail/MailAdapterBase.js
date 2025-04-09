@@ -14,7 +14,7 @@ class MailAdapterBase {
                     'normalizeEvent',
                     'getBatchSize',
                     'isConfigured',
-                    'getAnalyticsProvider',
+                    'getAnalyticsProvider'
                 ],
                 writable: false
             });

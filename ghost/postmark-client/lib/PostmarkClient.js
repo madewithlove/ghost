@@ -312,8 +312,7 @@ module.exports = class PostmarkClient extends MailAdapterBase {
         const {EmailAnalyticsProviderPostmark} = require('./EmailAnalyticsProviderPostmark');
         return new EmailAnalyticsProviderPostmark({
             client: this.getInstance(),
-            config: this.#config,
-            settings: this.#settings
+            config: this.#config
         });
     }
 };

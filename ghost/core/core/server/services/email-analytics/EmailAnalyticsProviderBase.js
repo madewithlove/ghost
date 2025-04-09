@@ -1,15 +1,15 @@
-class MailAdapterBase {
+class EmailAnalyticsProviderBase {
     constructor() {
         Object.defineProperty(this,
             'requiredFns',
             {
                 value: [
                     'fetchLatest',
-                    '#fetchAnalytics',
+                    '#fetchAnalytics'
                 ],
                 writable: false
             });
     }
 }
 
-module.exports = MailAdapterBase;
+module.exports = EmailAnalyticsProviderBase;

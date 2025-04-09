@@ -1,11 +1,14 @@
+const EmailAnalyticsProviderBase = require('../../core/core/server/services/email-analytics/EmailAnalyticsProviderBase');
 const EVENT_FILTER = 'delivered OR opened OR failed OR unsubscribed OR complained';
 const PAGE_LIMIT = 300;
 const DEFAULT_TAGS = ['bulk-email'];
 
-class EmailAnalyticsProviderPostmark {
+class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
     postmarkClient;
 
     constructor({client, config}) {
+        super();
+
         this.postmarkClient = client;
         this.tags = [...DEFAULT_TAGS];
 

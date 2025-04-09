@@ -1,1 +1,1 @@
-module.exports = require('../../../../postmark-client');
+module.exports = require('@tryghost/postmark-client');

@@ -1,1 +1,1 @@
-module.exports = require('@tryghost/mailgun-client');
+module.exports = require('../../../core/server/services/lib/MailgunClient');

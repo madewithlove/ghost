@@ -12,7 +12,9 @@ class EmailServiceWrapper {
     }
 
     getMailClient(settingsCache, configService) {
-        return adapterManager.getAdapter('mail', undefined, {config: configService, settings: settingsCache});
+        const mailer = settingsCache.get('bulk_email_provider') ?? 'mailgun';
+        
+        return adapterManager.getAdapter('mail', mailer, {config: configService, settings: settingsCache});
     }
 
     init() {
@@ -51,6 +53,7 @@ class EmailServiceWrapper {
             sentry.captureException(error);
         };
 
+        // Mail client instance for email provider
         let mailClient = this.getMailClient(settingsCache, configService);
 
         const i18nLanguage = labs.isSet('i18n') ? settingsCache.get('locale') || 'en' : 'en';

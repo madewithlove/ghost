@@ -39,7 +39,7 @@ class BulkEmailProvider {
 
     /**
      * @param {object} dependencies
-     * @param {import('@tryghost/mailgun-client/lib/MailgunClient')|import('@tryghost/postmark-client/lib/PostmarkClient')} [dependencies.mailClient] - mailgun client to send emails
+     * @param {import('../../../../core/core/server/services/lib/MailgunClient')|import('@tryghost/postmark-client/lib/PostmarkClient')} [dependencies.mailClient] - mailgun client to send emails
      * @param {Function} [dependencies.errorHandler] - custom error handler for logging exceptions
      */
     constructor({
@@ -210,11 +210,11 @@ class BulkEmailProvider {
 
     /**
      * Returns the configured delay between batches in milliseconds
-     * 
+     *
      * @returns {number}
      */
     getTargetDeliveryWindow() {
-        return this.#mailgunClient.getTargetDeliveryWindow();
+        return this.#mailClient.getTargetDeliveryWindow();
     }
 }
 

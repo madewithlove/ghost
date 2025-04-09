@@ -2,9 +2,7 @@ const debug = require('@tryghost/debug')('i18n');
 const logging = require('@tryghost/logging');
 const url = require('../../api/endpoints/utils/serializers/output/utils/url');
 const events = require('../../lib/common/events');
-const adapterManager = require("../adapter-manager");
-const configService = require("../../../shared/config");
-const settingsCache = require("../../../shared/settings-cache/CacheManager");
+const adapterManager = require('../adapter-manager');
 
 class EmailServiceWrapper {
     getPostUrl(post) {
@@ -13,8 +11,8 @@ class EmailServiceWrapper {
         return jsonModel.url;
     }
 
-    getMailClient() {
-        return mailClient;
+    getMailClient(settingsCache, configService) {
+        return adapterManager.getAdapter('mail', undefined, {config: configService, settings: settingsCache});
     }
 
     init() {
@@ -24,7 +22,6 @@ class EmailServiceWrapper {
 
         const {EmailService, EmailController, EmailRenderer, SendingService, BatchSendingService, EmailSegmenter, BulkEmailProvider} = require('@tryghost/email-service');
         const {Post, Newsletter, Email, EmailBatch, EmailRecipient, Member} = require('../../models');
-        const adapterManager = require('../adapter-manager');
         const configService = require('../../../shared/config');
         const settingsCache = require('../../../shared/settings-cache');
         const settingsHelpers = require('../settings-helpers');
@@ -54,7 +51,7 @@ class EmailServiceWrapper {
             sentry.captureException(error);
         };
 
-        const mailClient = adapterManager.getAdapter('mail', undefined, {config: configService, settings: settingsCache});
+        let mailClient = this.getMailClient(settingsCache, configService);
 
         const i18nLanguage = labs.isSet('i18n') ? settingsCache.get('locale') || 'en' : 'en';
         const i18n = i18nLib(i18nLanguage, 'newsletter');

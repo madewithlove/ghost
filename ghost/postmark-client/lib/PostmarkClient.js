@@ -130,7 +130,7 @@ module.exports = class PostmarkClient extends MailAdapterBase {
      * @param {Date} startTime
      * @param {number} offset - The offset for pagination
      */
-    async getEventsFromPostmark(postmarkInstance, startTime, offset = 0) {
+    async getEvents(postmarkInstance, startTime, offset = 0) {
         try {
             const page = await postmarkInstance.getMessageOpens({offset});
             metrics.metric('postmark-get-events', {
@@ -165,7 +165,7 @@ module.exports = class PostmarkClient extends MailAdapterBase {
         const endDate = new Date();
 
         try {
-            let page = await this.getEventsFromPostmark(postmarkInstance, startDate);
+            let page = await this.getEvents(postmarkInstance, startDate);
             const totalCount = page.TotalCount;
             let currentOffset = 0;
 
@@ -176,7 +176,7 @@ module.exports = class PostmarkClient extends MailAdapterBase {
                 logging.info('[Postmark Client] Processed ' + events.length + ' events');
                 currentOffset += page.Opens.length;
 
-                page = await this.getEventsFromPostmark(postmarkInstance, startDate, currentOffset);
+                page = await this.getEvents(postmarkInstance, startDate, currentOffset);
 
                 events = (page?.Opens?.map(this.normalizeEvent) || []).filter(e => !!e && e.timestamp <= endDate && e.timestamp >= startDate);
             }

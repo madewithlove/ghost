@@ -4,8 +4,17 @@ class MailAdapterBase {
             'requiredFns',
             {
                 value: [
-                    'fetchLatest',
-                    '#fetchAnalytics',
+                    'send',
+                    'getEvents',
+                    'fetchEvents',
+                    'removeSuppression',
+                    'removeBounce',
+                    'removeComplaint',
+                    'removeUnsubscribe',
+                    'normalizeEvent',
+                    'getBatchSize',
+                    'isConfigured',
+                    'getAnalyticsProvider'
                 ],
                 writable: false
             });

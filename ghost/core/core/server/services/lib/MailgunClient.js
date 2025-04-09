@@ -172,7 +172,7 @@ module.exports = class MailgunClient extends MailAdapterBase {
         let totalBatchTime = 0;
 
         try {
-            let page = await this.getEventsFromMailgun(mailgunInstance, mailgunConfig, mailgunOptions);
+            let page = await this.getEvents(mailgunInstance, mailgunConfig, mailgunOptions);
 
             // By limiting the processed events to ones created before this job started we cancel early ready for the next job run.
             // Avoids chance of events being missed in long job runs due to mailgun's eventual-consistency creating events outside of our 30min sliding re-check window
@@ -199,7 +199,7 @@ module.exports = class MailgunClient extends MailAdapterBase {
 
                 const nextPageId = page.pages.next.page;
                 debug(`[MailgunClient fetchEvents]: starting fetching next page ${nextPageId}`);
-                page = await this.getEventsFromMailgun(mailgunInstance, mailgunConfig, {
+                page = await this.getEvents(mailgunInstance, mailgunConfig, {
                     page: nextPageId,
                     ...mailgunOptions
                 });

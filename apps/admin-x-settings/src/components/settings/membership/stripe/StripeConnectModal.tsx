@@ -162,8 +162,7 @@ const Connected: React.FC<{onClose?: () => void}> = ({onClose}) => {
         // this.ghostPaths.url.api('/members/') + '?filter=status:paid&limit=0';
         NiceModal.show(ConfirmationModal, {
             title: 'Disconnect Stripe',
-            prompt: (hasActiveStripeSubscriptions ? 'Cannot disconnect while there are members with active Stripe subscriptions.' : <>You&lsquo;re about to disconnect your Stripe account {stripeConnectAccountName}
-                from this site. This will automatically turn off paid memberships on this site.</>),
+            prompt: (hasActiveStripeSubscriptions ? 'Cannot disconnect while there are members with active Stripe subscriptions.' : <>You&lsquo;re about to disconnect your Stripe account {stripeConnectAccountName} from this site. This will automatically turn off paid memberships on this site.</>),
             okLabel: hasActiveStripeSubscriptions ? '' : 'Disconnect',
             onOk: async (modal) => {
                 try {
@@ -193,7 +192,7 @@ const Connected: React.FC<{onClose?: () => void}> = ({onClose}) => {
             </div>
             <div className='flex flex-col items-center'>
                 <Heading level={6}>Read next</Heading>
-                <a className='w-100 mt-5 flex flex-col items-stretch justify-between rounded-sm border border-grey-200 transition-all hover:border-grey-400 dark:border-grey-900 md:flex-row' href="https://ghost.org/resources/managing-your-stripe-account/?ref=admin" rel="noopener noreferrer" target="_blank">
+                <a className='w-100 mt-5 flex flex-col items-stretch justify-between rounded-sm border border-grey-200 transition-all hover:border-grey-400 md:flex-row dark:border-grey-900' href="https://ghost.org/resources/managing-your-stripe-account/?ref=admin" rel="noopener noreferrer" target="_blank">
                     <div className='order-2 p-4 md:order-1'>
                         <div className='font-bold'>How to setup and manage your Stripe account</div>
                         <div className='mt-1 text-sm text-grey-800 dark:text-grey-500'>Learn how to configure your Stripe account to work with Ghost, from custom branding to payment receipt emails.</div>

@@ -3,14 +3,16 @@ const debug = require('@tryghost/debug');
 const logging = require('@tryghost/logging');
 const metrics = require('@tryghost/metrics');
 const errors = require('@tryghost/errors');
+const MailAdapterBase = require('../../core/core/server/adapters/mail/MailAdapterBase');
 
-module.exports = class MailgunClient {
+module.exports = class MailgunClient extends MailAdapterBase {
     #config;
     #settings;
 
     static DEFAULT_BATCH_SIZE = 1000;
 
     constructor({config, settings}) {
+        super();
         this.#config = config;
         this.#settings = settings;
     }
@@ -128,7 +130,7 @@ module.exports = class MailgunClient {
      * @param {Object} mailgunConfig
      * @param {Object} mailgunOptions
      */
-    async getEventsFromMailgun(mailgunInstance, mailgunConfig, mailgunOptions) {
+    async getEvents(mailgunInstance, mailgunConfig, mailgunOptions) {
         const startTime = Date.now();
         try {
             const page = await mailgunInstance.events.get(mailgunConfig.domain, mailgunOptions);
@@ -170,7 +172,7 @@ module.exports = class MailgunClient {
         let totalBatchTime = 0;
 
         try {
-            let page = await this.getEventsFromMailgun(mailgunInstance, mailgunConfig, mailgunOptions);
+            let page = await this.getEvents(mailgunInstance, mailgunConfig, mailgunOptions);
 
             // By limiting the processed events to ones created before this job started we cancel early ready for the next job run.
             // Avoids chance of events being missed in long job runs due to mailgun's eventual-consistency creating events outside of our 30min sliding re-check window
@@ -197,7 +199,7 @@ module.exports = class MailgunClient {
 
                 const nextPageId = page.pages.next.page;
                 debug(`[MailgunClient fetchEvents]: starting fetching next page ${nextPageId}`);
-                page = await this.getEventsFromMailgun(mailgunInstance, mailgunConfig, {
+                page = await this.getEvents(mailgunInstance, mailgunConfig, {
                     page: nextPageId,
                     ...mailgunOptions
                 });

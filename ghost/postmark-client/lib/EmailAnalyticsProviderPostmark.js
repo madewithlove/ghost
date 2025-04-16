@@ -26,8 +26,9 @@ class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
         const postmarkOptions = {
             limit: PAGE_LIMIT,
             event: EVENT_FILTER,
-            begin: options.begin ? options.begin.getTime() / 1000 : undefined,
-            end: options.end ? options.end.getTime() / 1000 : undefined,
+            tags: '',
+            begin: options.begin ? String(Math.floor(options.begin.getTime() / 1000)) : undefined,
+            end: options.end ? String(Math.floor(options.end.getTime() / 1000)) : undefined,
             ascending: 'yes'
         };
 

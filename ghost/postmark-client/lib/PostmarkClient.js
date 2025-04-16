@@ -87,10 +87,6 @@ module.exports = class PostmarkClient extends MailAdapterBase {
                     messageData.Metadata['email-id'] = message.id;
                 }
 
-                if (bulkEmailConfig?.postmark?.tag) {
-                    messageData.Tag = bulkEmailConfig.postmark.tag;
-                }
-
                 emailMessages.push(messageData);
             });
 

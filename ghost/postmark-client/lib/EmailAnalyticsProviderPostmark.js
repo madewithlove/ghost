@@ -1,7 +1,6 @@
 const EmailAnalyticsProviderBase = require('../../core/core/server/services/email-analytics/EmailAnalyticsProviderBase');
 const EVENT_FILTER = 'delivered OR opened OR failed OR unsubscribed OR complained';
 const PAGE_LIMIT = 300;
-const DEFAULT_TAGS = ['bulk-email'];
 
 class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
     postmarkClient;
@@ -10,11 +9,6 @@ class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
         super();
 
         this.postmarkClient = client;
-        this.tags = [...DEFAULT_TAGS];
-
-        if (config.get('bulkEmail:postmark:tag')) {
-            this.tags.push(config.get('bulkEmail:postmark:tag'));
-        }
     }
 
     /**
@@ -32,7 +26,6 @@ class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
         const postmarkOptions = {
             limit: PAGE_LIMIT,
             event: EVENT_FILTER,
-            tags: this.tags.join(' AND '),
             begin: options.begin ? options.begin.getTime() / 1000 : undefined,
             end: options.end ? options.end.getTime() / 1000 : undefined,
             ascending: 'yes'

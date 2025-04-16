@@ -16,8 +16,6 @@ module.exports = function getConfigProperties() {
         enableDeveloperExperiments: config.get('enableDeveloperExperiments') || false,
         stripeDirect: config.get('stripeDirect'),
         bulkEmailIsConfigured: !!(config.get('bulkEmail') && (config.get('bulkEmail').mailgun || config.get('bulkEmail').postmark)),
-        mailgunIsConfigured: !!(config.get('bulkEmail') && config.get('bulkEmail').mailgun),
-        postmarkIsConfigured: !!(config.get('bulkEmail') && config.get('bulkEmail').postmark),
         emailAnalytics: config.get('emailAnalytics'),
         hostSettings: config.get('hostSettings'),
         tenor: config.get('tenor'),

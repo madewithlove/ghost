@@ -50,22 +50,32 @@ describe('Public-config Service', function () {
             assert.equal(configProperties.tenor.googleApiKey, 'TENOR_KEY');
         });
 
-        it('should return true for mailgunIsConfigured when mailgun is configured', function () {
+        it('should return true for bulkEmailIsConfigured when mailgun is configured', function () {
             configUtils.set('bulkEmail', {
                 mailgun: 'exists'
             });
 
             let configProperties = getConfigProperties();
 
-            assert.equal(configProperties.mailgunIsConfigured, true);
+            assert.equal(configProperties.bulkEmailIsConfigured, true);
         });
 
-        it('should return false for mailgunIsConfigured when mailgun is not configured', function () {
+        it('should return false for bulkEmailIsConfigured when mailgun is not configured', function () {
             configUtils.set('bulkEmail', {});
 
             let configProperties = getConfigProperties();
 
-            assert.equal(configProperties.mailgunIsConfigured, false);
+            assert.equal(configProperties.bulkEmailIsConfigured, false);
+        });
+
+        it('should return true for bulkEmailIsConfigured when postmark is configured', function () {
+            configUtils.set('bulkEmail', {
+                postmark: 'exists'
+            });
+
+            let configProperties = getConfigProperties();
+
+            assert.equal(configProperties.bulkEmailIsConfigured, true);
         });
 
         it('should NOT return stats by default', function () {

@@ -25,7 +25,7 @@ const EmailSettings: React.FC = () => {
                 <>
                     <DefaultRecipients keywords={searchKeywords.defaultRecipients} />
                     <Newsletters keywords={searchKeywords.newsletters} />
-                    {!config.mailgunIsConfigured && <MailGun keywords={searchKeywords.mailgun} />}
+                    {!config.bulkEmailIsConfigured && <MailGun keywords={searchKeywords.mailgun} />}
                 </>
             )}
         </SearchableSection>

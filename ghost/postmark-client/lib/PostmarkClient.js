@@ -235,20 +235,23 @@ module.exports = class PostmarkClient extends MailAdapterBase {
     }
 
     #getConfig() {
-        const bulkEmailConfig = this.#config.get('bulkEmail');
+        const bulkEmailConfig = {
+            apiToken: this.#config.get('bulkEmail')?.postmark?.apiToken,
+            streamId: this.#config.get('bulkEmail')?.postmark?.streamId ?? 'broadcast'
+        };
         const bulkEmailSetting = {
             apiToken: this.#settings.get('postmark_api_token'),
             streamId: this.#settings.get('postmark_stream_id') ?? 'broadcast'
         };
 
-        const hasPostmarkConfig = !!(bulkEmailConfig?.postmark);
-        const hasPostmarkSetting = !!(bulkEmailSetting && bulkEmailSetting.apiToken);
+        const hasPostmarkConfig = !!(bulkEmailConfig.apiToken);
+        const hasPostmarkSetting = !!(bulkEmailSetting.apiToken);
 
         if (!hasPostmarkConfig && !hasPostmarkSetting) {
             return null;
         }
 
-        const postmarkConfig = hasPostmarkConfig ? bulkEmailConfig.postmark : bulkEmailSetting;
+        const postmarkConfig = hasPostmarkConfig ? bulkEmailConfig : bulkEmailSetting;
         return postmarkConfig;
     }
 

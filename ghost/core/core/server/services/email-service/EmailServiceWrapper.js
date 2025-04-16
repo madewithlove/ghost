@@ -12,7 +12,7 @@ class EmailServiceWrapper {
     }
 
     getMailClient(settingsCache, configService) {
-        const mailer = settingsCache.get('bulk_email_provider') ?? 'mailgun';
+        const mailer = configService.get('bulkEmail:postmark') ? 'postmark' : 'mailgun';
         
         return adapterManager.getAdapter('mail', mailer, {config: configService, settings: settingsCache});
     }

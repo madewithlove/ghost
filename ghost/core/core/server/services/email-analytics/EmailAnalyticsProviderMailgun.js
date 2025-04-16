@@ -1,14 +1,15 @@
-const MailgunClient = require('../lib/MailgunClient');
-
+const {EmailAnalyticsProviderBase} = require('./EmailAnalyticsProviderBase');
 const DEFAULT_EVENT_FILTER = 'delivered OR opened OR failed OR unsubscribed OR complained';
 const PAGE_LIMIT = 300;
 const DEFAULT_TAGS = ['bulk-email'];
 
-class EmailAnalyticsProviderMailgun {
+class EmailAnalyticsProviderMailgun extends EmailAnalyticsProviderBase {
     mailgunClient;
 
-    constructor({config, settings}) {
-        this.mailgunClient = new MailgunClient({config, settings});
+    constructor({client, config}) {
+        super();
+
+        this.mailgunClient = client;
         this.tags = [...DEFAULT_TAGS];
 
         if (config.get('bulkEmail:mailgun:tag')) {

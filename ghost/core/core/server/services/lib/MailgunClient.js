@@ -363,4 +363,12 @@ module.exports = class MailgunClient extends MailAdapterBase {
         }
         return parseInt(targetDeliveryWindow);
     }
+
+    getAnalyticsProvider() {
+        const {EmailAnalyticsProviderMailgun} = require('../email-analytics/EmailAnalyticsProviderMailgun');
+        return new EmailAnalyticsProviderMailgun({
+            client: this.getInstance(),
+            config: this.#config
+        });
+    }
 };

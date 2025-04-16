@@ -5,9 +5,9 @@ const PAGE_LIMIT = 300;
 class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
     postmarkClient;
 
-    constructor({client, config}) {
+    constructor({client}) {
         super();
-
+        
         this.postmarkClient = client;
     }
 

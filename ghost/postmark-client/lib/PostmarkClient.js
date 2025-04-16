@@ -51,7 +51,6 @@ module.exports = class PostmarkClient extends MailAdapterBase {
 
         let startTime;
         try {
-            const bulkEmailConfig = this.#config.get('bulkEmail');
             const config = this.#getConfig();
             const messageContent = _.pick(message, 'subject', 'html', 'plaintext');
 

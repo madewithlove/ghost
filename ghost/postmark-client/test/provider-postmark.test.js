@@ -21,7 +21,6 @@ describe('EmailAnalyticsProviderPostmark', function () {
         sinon.restore();
     });
 
-
     describe('fetchLatest', function () {
         const LATEST_TIMESTAMP = new Date('2025-01-01T12:00:00Z');
         const END_EXAMPLE = new Date('2025-01-01T14:00:00Z');

@@ -392,10 +392,6 @@
         }
     },
     "email": {
-        "bulk_email_provider": {
-            "defaultValue": "mailgun",
-            "type": "string"
-        },
         "mailgun_domain": {
             "defaultValue": null,
             "type": "string"
@@ -405,10 +401,6 @@
             "type": "string"
         },
         "mailgun_base_url": {
-            "defaultValue": null,
-            "type": "string"
-        },
-        "postmark_api_token": {
             "defaultValue": null,
             "type": "string"
         },

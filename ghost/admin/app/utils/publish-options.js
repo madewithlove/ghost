@@ -139,7 +139,7 @@ export default class PublishOptions {
     }
 
     get bulkEmailIsConfigured() {
-        return this.settings.bulkEmailIsConfigured
+        return this.settings.mailgunIsConfigured
             || this.config.mailgunIsConfigured
             || this.config.postmarkIsConfigured;
     }

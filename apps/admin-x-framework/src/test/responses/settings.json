@@ -205,10 +205,6 @@
             "value": false
         },
         {
-            "key": "bulk_email_provider",
-            "value": null
-        },
-        {
             "key": "mailgun_domain",
             "value": null
         },
@@ -218,10 +214,6 @@
         },
         {
             "key": "mailgun_base_url",
-            "value": null
-        },
-        {
-            "key": "postmark_api_token",
             "value": null
         },
         {

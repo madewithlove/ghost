@@ -12,8 +12,8 @@ class EmailAnalyticsProviderPostmark extends EmailAnalyticsProviderBase {
         this.postmarkClient = client;
         this.tags = [...DEFAULT_TAGS];
 
-        if (config.get('bulkEmail:mailgun:tag')) {
-            this.tags.push(config.get('bulkEmail:mailgun:tag'));
+        if (config.get('bulkEmail:postmark:tag')) {
+            this.tags.push(config.get('bulkEmail:postmark:tag'));
         }
     }
 

@@ -1,4 +1,4 @@
-const {EmailAnalyticsProviderBase} = require('./EmailAnalyticsProviderBase');
+const EmailAnalyticsProviderBase = require('./EmailAnalyticsProviderBase');
 const DEFAULT_EVENT_FILTER = 'delivered OR opened OR failed OR unsubscribed OR complained';
 const PAGE_LIMIT = 300;
 const DEFAULT_TAGS = ['bulk-email'];

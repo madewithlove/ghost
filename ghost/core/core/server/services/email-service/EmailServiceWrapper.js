@@ -2,8 +2,7 @@ const debug = require('@tryghost/debug')('i18n');
 const logging = require('@tryghost/logging');
 const url = require('../../api/endpoints/utils/serializers/output/utils/url');
 const events = require('../../lib/common/events');
-const MailgunClient = require('../lib/MailgunClient');
-const PostmarkClient = require('@tryghost/postmark-client');
+const adapterManager = require('../adapter-manager');
 
 class EmailServiceWrapper {
     getPostUrl(post) {
@@ -13,17 +12,9 @@ class EmailServiceWrapper {
     }
 
     getMailClient(settingsCache, configService) {
-        if (settingsCache.get('bulk_email_provider') === 'postmark') {
-            // Postmark client instance for email provider
-            return new PostmarkClient({
-                config: configService, settings: settingsCache
-            });
-        }
-
-        // Mailgun client instance for email provider
-        return new MailgunClient({
-            config: configService, settings: settingsCache
-        });
+        const mailer = settingsCache.get('bulk_email_provider') ?? 'mailgun';
+        
+        return adapterManager.getAdapter('mail', mailer, {config: configService, settings: settingsCache});
     }
 
     init() {

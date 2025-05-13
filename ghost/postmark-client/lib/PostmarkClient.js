@@ -3,14 +3,16 @@ const logging = require('@tryghost/logging');
 const metrics = require('@tryghost/metrics');
 const errors = require('@tryghost/errors');
 const {ServerClient, Header} = require('postmark');
+const MailAdapterBase = require('../../core/core/server/adapters/mail/MailAdapterBase');
 
-module.exports = class PostmarkClient {
+module.exports = class PostmarkClient extends MailAdapterBase {
     #config;
     #settings;
 
     static DEFAULT_BATCH_SIZE = 500;
 
     constructor({config, settings}) {
+        super();
         this.#config = config;
         this.#settings = settings;
     }
@@ -130,7 +132,7 @@ module.exports = class PostmarkClient {
      * @param {Date} startTime
      * @param {number} offset - The offset for pagination
      */
-    async getEventsFromPostmark(postmarkInstance, startTime, offset = 0) {
+    async getEvents(postmarkInstance, startTime, offset = 0) {
         try {
             const page = await postmarkInstance.getMessageOpens({offset});
             metrics.metric('postmark-get-events', {
@@ -165,7 +167,7 @@ module.exports = class PostmarkClient {
         const endDate = new Date();
 
         try {
-            let page = await this.getEventsFromPostmark(postmarkInstance, startDate);
+            let page = await this.getEvents(postmarkInstance, startDate);
             const totalCount = page.TotalCount;
             let currentOffset = 0;
 
@@ -176,7 +178,7 @@ module.exports = class PostmarkClient {
                 logging.info('[Postmark Client] Processed ' + events.length + ' events');
                 currentOffset += page.Opens.length;
 
-                page = await this.getEventsFromPostmark(postmarkInstance, startDate, currentOffset);
+                page = await this.getEvents(postmarkInstance, startDate, currentOffset);
 
                 events = (page?.Opens?.map(this.normalizeEvent) || []).filter(e => !!e && e.timestamp <= endDate && e.timestamp >= startDate);
             }

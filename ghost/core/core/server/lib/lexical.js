@@ -72,7 +72,7 @@ module.exports = {
 
     async render(lexical, userOptions = {}) {
         if (!postsService) {
-            const getPostServiceInstance = require('../services/posts/posts-service');
+            const getPostServiceInstance = require('../services/posts/posts-service-instance');
             postsService = getPostServiceInstance();
         }
         if (!serializePosts) {
@@ -81,6 +81,7 @@ module.exports = {
 
         const options = Object.assign({
             siteUrl: config.get('url'),
+            imageBaseUrl: config.get('urls:image') || '',
             imageOptimization: config.get('imageOptimization'),
             canTransformImage(storagePath) {
                 const imageTransform = require('@tryghost/image-transform');
@@ -92,7 +93,7 @@ module.exports = {
                     && typeof storage.getStorage('images').saveRaw === 'function';
             },
             feature: {
-                contentVisibility: labs.isSet('contentVisibility'),
+                contentVisibility: true, // force on until Koenig has been bumped
                 emailCustomization: true, // force on until Koenig has been bumped
                 emailUniqueid: labs.isSet('emailUniqueid')
             },

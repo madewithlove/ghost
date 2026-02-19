@@ -3,7 +3,7 @@ const FormData = require('form-data');
 const p = require('path');
 const fsExtra = require('fs-extra');
 const {promises: fs} = require('fs');
-const assert = require('assert/strict');
+const assert = require('node:assert/strict');
 const config = require('../../../core/shared/config');
 const urlUtils = require('../../../core/shared/url-utils');
 const imageTransform = require('@tryghost/image-transform');
@@ -11,7 +11,7 @@ const sinon = require('sinon');
 const storage = require('../../../core/server/adapters/storage');
 const {anyErrorId} = matchers;
 const {imageSize} = require('../../../core/server/lib/image');
-const configUtils = require('../../utils/configUtils');
+const configUtils = require('../../utils/config-utils');
 const logging = require('@tryghost/logging');
 
 const images = [];

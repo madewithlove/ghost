@@ -1,5 +1,5 @@
-const assert = require('assert/strict');
-const EmailEventProcessor = require('../../../../../core/server/services/email-service/EmailEventProcessor');
+const assert = require('node:assert/strict');
+const EmailEventProcessor = require('../../../../../core/server/services/email-service/email-event-processor');
 const {createDb, createPrometheusClient} = require('./utils');
 const sinon = require('sinon');
 

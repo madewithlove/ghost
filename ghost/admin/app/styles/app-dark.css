@@ -42,7 +42,6 @@
 @import "components/stacks.css";
 @import "components/browser-preview.css";
 @import "components/filter-builder.css";
-@import "components/theme-errors.css";
 @import "components/modal-about.css";
 
 
@@ -53,8 +52,6 @@
 @import "layouts/auth.css";
 @import "layouts/content.css";
 @import "layouts/editor.css";
-@import "layouts/whatsnew.css";
-@import "layouts/whatsnew-modal.css";
 @import "layouts/tags.css";
 @import "layouts/members.css";
 @import "layouts/member-activity.css";
@@ -163,17 +160,6 @@ input:focus,
 
 .settings-menu-container .settings-menu-pane {
     background: var(--dark-main-bg-color);
-}
-
-@media (max-width: 800px) {
-    .gh-mobile-nav-bar {
-        background: var(--nav-bg-color);
-    }
-
-    .gh-mobile-nav-bar a.active {
-        background: var(--whitegrey-l2);
-        color: #fff;
-    }
 }
 
 .gh-nav-search .ember-power-select-trigger {
@@ -569,10 +555,6 @@ input:focus,
     background: var(--lightgrey);
 }
 
-.mobile-menu-expanded .content-cover {
-    background: transparent;
-}
-
 .gh-box {
     background: var(--lightgrey);
     color: var(--darkgrey);
@@ -642,8 +624,7 @@ input:focus,
     background: var(--main-bg-color);
 }
 
-.gh-nav-hidden:hover,
-.mobile-menu-expanded .gh-nav {
+.gh-nav-hidden:hover {
     box-shadow:
         100px 0px 80px 0px rgba(0, 0, 0, 0.06),
         41.78px 0px 33.422px 0px rgba(0, 0, 0, 0.05),
@@ -724,10 +705,6 @@ input:focus,
 
 .tag-settings .gh-image-uploader {
     background-color: transparent;
-}
-
-.gh-referral-toast-close:hover {
-    color: #fff;
 }
 
 .nightshift-toggle {
@@ -1137,11 +1114,6 @@ input:focus,
     background: rgba(88, 101, 116, 0.99);
 }
 
-.gh-whats-new-badge-account {
-    top: 0;
-    right: -2px;
-}
-
 .gh-list-scrolling thead th:first-child {
     background: linear-gradient(90deg, rgba(21,23,26,1) 90%, rgba(21,23,26,0) 100%);
 }
@@ -1496,10 +1468,6 @@ Onboarding checklist: Share publication modal */
 
 .gh-share-links li a:hover {
     background: #394047;
-}
-
-.gh-sidebar-banner.gh-error-banner {
-    background: var(--lightgrey-d1);
 }
 
 

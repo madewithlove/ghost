@@ -86,7 +86,7 @@ class BulkEmailProvider {
 
     /**
      * Send an email using the Mailgun API
-     * @param {import('./SendingService').EmailData} data
+     * @param {import('./sending-service').EmailData} data
      * @param {EmailSendingOptions} options
      * @returns {Promise<EmailProviderSuccessResponse>}
      */

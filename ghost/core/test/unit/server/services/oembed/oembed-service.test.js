@@ -1,8 +1,8 @@
-const assert = require('assert/strict');
+const assert = require('node:assert/strict');
 const nock = require('nock');
 const got = require('got');
 
-const OembedService = require('../../../../../core/server/services/oembed/OEmbedService');
+const OembedService = require('../../../../../core/server/services/oembed/oembed-service');
 
 describe('oembed-service', function () {
     /** @type {OembedService} */

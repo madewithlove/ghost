@@ -4,7 +4,7 @@ const yaml = require('js-yaml');
 const crypto = require('crypto');
 const fs = require('fs-extra');
 const path = require('path');
-const {config} = require('../../../../utils/configUtils');
+const {config} = require('../../../../utils/config-utils');
 const schema = require('../../../../../core/server/data/schema/schema');
 const fixtures = require('../../../../../core/server/data/schema/fixtures/fixtures.json');
 const defaultSettings = require('../../../../../core/server/data/schema/default-settings/default-settings.json');
@@ -35,9 +35,9 @@ const validateRouteSettings = require('../../../../../core/server/services/route
  */
 describe('DB version integrity', function () {
     // Only these variables should need updating
-    const currentSchemaHash = '34938745eb81427846ddba92c31d1b16';
-    const currentFixturesHash = '0877727032b8beddbaedc086a8acf1a2';
-    const currentSettingsHash = 'bb8be7d83407f2b4fa2ad68c19610579';
+    const currentSchemaHash = '0faf1ab8fe5d1582b21e8f828f718c9f';
+    const currentFixturesHash = '4dcbd7b52bc9ce23e6f5f1673118ba73';
+    const currentSettingsHash = 'a102b80d2ab0cd92325ed007c94d7da6';
     const currentRoutesHash = '3d180d52c663d173a6be791ef411ed01';
 
     // If this test is failing, then it is likely a change has been made that requires a DB version bump,
@@ -63,10 +63,10 @@ describe('DB version integrity', function () {
         settingsHash = crypto.createHash('md5').update(JSON.stringify(defaultSettings), 'binary').digest('hex');
         routesHash = crypto.createHash('md5').update(JSON.stringify(defaultRoutes), 'binary').digest('hex');
 
-        schemaHash.should.eql(currentSchemaHash);
-        fixturesHash.should.eql(currentFixturesHash);
-        settingsHash.should.eql(currentSettingsHash);
-        routesHash.should.eql(currentRoutesHash);
+        schemaHash.should.eql(currentSchemaHash, 'Database schema has changed, please ensure a proper migration has been created if necessary and update the hash in this test.');
+        fixturesHash.should.eql(currentFixturesHash, 'Fixtures have changed, please ensure a proper migration has been created if necessary and update the hash in this test.');
+        settingsHash.should.eql(currentSettingsHash, 'Default settings have changed, please ensure a proper migration has been created if necessary and update the hash in this test.');
+        routesHash.should.eql(currentRoutesHash, 'Default routes have changed, please ensure a proper migration has been created if necessary and update the hash in this test.');
         routesHash.should.eql(routeSettings.getDefaultHash());
     });
 });

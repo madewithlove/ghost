@@ -7,7 +7,7 @@ import SortButton from '../components/sort-button';
 import StatsHeader from '../layout/stats-header';
 import StatsLayout from '../layout/stats-layout';
 import StatsView from '../layout/stats-view';
-import {Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyIndicator, LucideIcon, SkeletonTable, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, formatDisplayDate, formatNumber, formatPercentage, getRangeDates} from '@tryghost/shade';
+import {Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyIndicator, LucideIcon, NavbarActions, SkeletonTable, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, formatDisplayDate, formatNumber, formatPercentage, getRangeDates} from '@tryghost/shade';
 import {Navigate, useAppContext, useNavigate, useSearchParams} from '@tryghost/admin-x-framework';
 import {getPeriodText} from '@src/utils/chart-helpers';
 import {useBrowseNewsletters} from '@tryghost/admin-x-framework/api/newsletters';
@@ -34,6 +34,10 @@ const NewsletterTableRows: React.FC<{
     sortBy: TopNewslettersOrder;
 }> = React.memo(({range, selectedNewsletterId, shouldFetchStats, sortBy}) => {
     const navigate = useNavigate();
+    const {settings} = useGlobalData();
+
+    // Get site timezone from settings for displaying dates consistently
+    const siteTimezone = String(settings.find(setting => setting.key === 'timezone')?.value || 'Etc/UTC');
 
     // Fetch newsletter stats with reactive sort order - isolated to this component
     const {data: newsletterStatsData, isLoading: isStatsLoading, isClicksLoading} = useNewsletterStatsWithRangeSplit(
@@ -85,7 +89,7 @@ const NewsletterTableRows: React.FC<{
                                 </div>
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-sm">
-                                {formatDisplayDate(post.send_date)}
+                                {formatDisplayDate(post.send_date, siteTimezone)}
                             </TableCell>
                             <TableCell className='text-right font-mono text-sm'>
                                 {formatNumber(post.sent_to)}
@@ -360,17 +364,19 @@ const Newsletters: React.FC = () => {
     // const hasNewslettersInPeriod = newsletterStatsData?.stats && newsletterStatsData.stats.length > 0;
     // const pageData = isKPIsLoading || isNewsletterStatsLoading ? undefined : (hasNewslettersInPeriod ? ['data exists'] : []);
 
-    if (!appSettings?.newslettersEnabled) {
+    if (appSettings && !appSettings.newslettersEnabled) {
         return (
-            <Navigate to='/' />
+            <Navigate to='/analytics' />
         );
     }
 
     return (
         <StatsLayout>
             <StatsHeader>
-                <NewsletterSelect newsletters={newslettersData?.newsletters} />
-                <DateRangeSelect />
+                <NavbarActions>
+                    <NewsletterSelect newsletters={newslettersData?.newsletters} />
+                    <DateRangeSelect />
+                </NavbarActions>
             </StatsHeader>
             <StatsView isLoading={false} loadingComponent={<></>}>
                 <>

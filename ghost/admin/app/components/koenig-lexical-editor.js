@@ -252,7 +252,12 @@ export default class KoenigLexicalEditor extends Component {
         if (this.offers) {
             return this.offers;
         }
-        this.offers = yield this.store.query('offer', {filter: 'status:active'});
+
+        // Only fetch active signup offers for use in link dropdowns
+        // - Archived offers (status:archived) should not appear
+        // - Retention offers (redemption_type:retention) are only triggered during cancellation flows, not via offer links
+        this.offers = yield this.store.query('offer', {filter: 'status:active+redemption_type:signup'});
+
         return this.offers;
     }
 
@@ -440,8 +445,7 @@ export default class KoenigLexicalEditor extends Component {
             fetchLabels,
             renderLabels: !this.session.user.isContributor,
             feature: {
-                contentVisibility: this.feature.contentVisibility,
-                contentVisibilityAlpha: this.feature.contentVisibilityAlpha
+                transistor: this.feature.transistor
             },
             deprecated: { // todo fix typo
                 headerV1: true // if false, shows header v1 in the menu

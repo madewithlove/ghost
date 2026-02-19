@@ -8,10 +8,11 @@ class EmailAnalyticsServiceWrapper {
             return;
         }
 
-        const EmailAnalyticsService = require('./email-analytics-service');
-        const EmailEventStorage = require('../email-service/email-event-storage');
-        const EmailEventProcessor = require('../email-service/email-event-processor');
-        const MailgunProvider = require('./email-analytics-provider-mailgun');
+        const EmailAnalyticsService = require('./EmailAnalyticsService');
+        const EmailEventStorage = require('../email-service/EmailEventStorage');
+        const EmailEventProcessor = require('../email-service/EmailEventProcessor');
+        const MailgunProvider = require('./EmailAnalyticsProviderMailgun');
+        const PostmarkProvider = require('@tryghost/email-analytics-provider-postmark');
         const {EmailRecipientFailure, EmailSpamComplaintEvent, Email} = require('../../models');
         const StartEmailAnalyticsJobEvent = require('./events/start-email-analytics-job-event');
         const domainEvents = require('@tryghost/domain-events');
@@ -50,7 +51,8 @@ class EmailAnalyticsServiceWrapper {
             settings,
             eventProcessor,
             providers: [
-                new MailgunProvider({config, settings, labs})
+                new MailgunProvider({config, settings, labs}),
+                new PostmarkProvider({config, settings})
             ],
             queries,
             domainEvents,

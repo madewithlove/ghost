@@ -2,7 +2,7 @@ const debug = require('@tryghost/debug')('i18n');
 const logging = require('@tryghost/logging');
 const url = require('../../api/endpoints/utils/serializers/output/utils/url');
 const events = require('../../lib/common/events');
-const MailgunClient = require('../lib/MailgunClient');
+const MailgunClient = require('../lib/mailgun-client');
 const PostmarkClient = require('@tryghost/postmark-client');
 
 class EmailServiceWrapper {
@@ -31,13 +31,13 @@ class EmailServiceWrapper {
             return;
         }
 
-        const EmailService = require('./EmailService');
-        const EmailController = require('./EmailController');
-        const EmailRenderer = require('./EmailRenderer');
-        const SendingService = require('./SendingService');
-        const BatchSendingService = require('./BatchSendingService');
-        const EmailSegmenter = require('./EmailSegmenter');
-        const {DomainWarmingService} = require('./DomainWarmingService');
+        const EmailService = require('./email-service');
+        const EmailController = require('./email-controller');
+        const EmailRenderer = require('./email-renderer');
+        const SendingService = require('./sending-service');
+        const BatchSendingService = require('./batch-sending-service');
+        const EmailSegmenter = require('./email-segmenter');
+        const {DomainWarmingService} = require('./domain-warming-service');
         const BulkEmailProvider = require('./BulkEmailProvider');
 
         const {Post, Newsletter, Email, EmailBatch, EmailRecipient, Member} = require('../../models');

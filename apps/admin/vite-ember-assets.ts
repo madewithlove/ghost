@@ -90,11 +90,14 @@ export function emberAssetsPlugin() {
                 dev: true,
                 etag: true
             });
-            
+
+            const base = (server.config.base ?? '/ghost').replace(/\/$/, '');
+            const assetsPrefix = `${base}/assets/`;
+
             server.middlewares.use((req, res, next) => {
-                if (req.url?.startsWith('/ghost/assets/')) {
+                if (req.url?.startsWith(assetsPrefix)) {
                     const originalUrl = req.url;
-                    req.url = req.url.replace('/ghost/assets', '');
+                    req.url = req.url.replace(assetsPrefix, '/');
                     assetsMiddleware(req, res, () => {
                         req.url = originalUrl;
                         next();
@@ -107,15 +110,31 @@ export function emberAssetsPlugin() {
         closeBundle() {
             // Only copy assets during production builds
             if (config.command === 'build') {
-                const sourcePath = path.resolve(GHOST_ADMIN_PATH, 'assets');
-                const destPath = path.resolve(config.build.outDir, 'assets');
-
                 try {
-                    // Copy all ember assets to the build output directory
-                    fs.cpSync(sourcePath, destPath, { recursive: true });
-                    console.log('Copied ember assets to build output');
+                    // All legacy admin assets gets copied to the Ghost core
+                    // admin assets folder by the Ember build
+                    const ghostAssetsDir = path.resolve(GHOST_ADMIN_PATH, 'assets');
+
+                    // React admin build output (apps/admin/dist/)
+                    const reactAssetsDir = path.resolve(config.build.outDir, 'assets');
+                    const reactIndexFile = path.resolve(config.build.outDir, 'index.html');
+                    
+                    // Copy Ember assets to React build output to enable use of
+                    // vite preview. This also prevents stale Ember assets from
+                    // overwriting fresh ones in the next step.
+                    fs.cpSync(ghostAssetsDir, reactAssetsDir, { recursive: true });
+                    
+                    // Copy combined assets back to Ghost core admin assets folder
+                    fs.cpSync(reactAssetsDir, ghostAssetsDir, { 
+                        recursive: true,
+                        force: true
+                    });
+                    
+                    // Copy React index.html, overwriting the existing index.html
+                    const forwardIndexFile = path.resolve(GHOST_ADMIN_PATH, 'index.html');
+                    fs.copyFileSync(reactIndexFile, forwardIndexFile);
                 } catch (error) {
-                    throw new Error(`Failed to copy ember assets: ${error instanceof Error ? error.message : String(error)}`);
+                    throw new Error(`Failed to copy admin assets: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
         }

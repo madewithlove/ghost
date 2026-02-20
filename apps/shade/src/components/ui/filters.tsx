@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import {createContext, useCallback, useContext, useMemo, useState} from 'react';
+import {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
 import {
     Command,
     CommandEmpty,
@@ -21,16 +21,18 @@ import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Switch} from '@/components/ui/switch';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cva, type VariantProps} from 'class-variance-authority';
-import {AlertCircle, Check, Plus, X} from 'lucide-react';
+import {AlertCircle, Check, Loader2, Plus, X} from 'lucide-react';
 import {cn} from '@/lib/utils';
 
 // i18n Configuration Interface
 export interface FilterI18nConfig {
   // UI Labels
     addFilter: string;
+    clearFilters: string;
     searchFields: string;
     noFieldsFound: string;
     noResultsFound: string;
+    loading: string;
     select: string;
     true: string;
     false: string;
@@ -101,10 +103,12 @@ export interface FilterI18nConfig {
 // Default English i18n configuration
 export const DEFAULT_I18N: FilterI18nConfig = {
     // UI Labels
-    addFilter: 'Add filter',
+    addFilter: '',
+    clearFilters: 'Clear',
     searchFields: 'Search fields...',
     noFieldsFound: 'No fields found.',
     noResultsFound: 'No results found.',
+    loading: 'Loading...',
     select: 'Select...',
     true: 'True',
     false: 'False',
@@ -117,7 +121,7 @@ export const DEFAULT_I18N: FilterI18nConfig = {
     percent: '%',
     defaultCurrency: '$',
     defaultColor: '#000000',
-    addFilterTitle: 'Add filter',
+    addFilterTitle: '',
 
     // Operators
     operators: {
@@ -234,7 +238,7 @@ const filterInputVariants = cva(
             size: {
                 lg: 'h-10 px-2.5 text-sm has-[[data-slot=filters-prefix]]:ps-0 has-[[data-slot=filters-suffix]]:pe-0',
                 md: 'h-[34px] px-2 text-sm has-[[data-slot=filters-prefix]]:ps-0 has-[[data-slot=filters-suffix]]:pe-0',
-                sm: 'h-8 px-1.5 text-xs has-[[data-slot=filters-prefix]]:ps-0 has-[[data-slot=filters-suffix]]:pe-0'
+                sm: 'h-8 px-2 text-xs has-[[data-slot=filters-prefix]]:ps-0 has-[[data-slot=filters-suffix]]:pe-0'
             },
             cursorPointer: {
                 true: 'cursor-pointer',
@@ -251,7 +255,10 @@ const filterInputVariants = cva(
 
 // Reusable remove button variant component
 const filterRemoveButtonVariants = cva(
-    ['inline-flex shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground'],
+    [
+        'inline-flex shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+    ],
     {
         variants: {
             variant: {
@@ -284,7 +291,8 @@ const filterRemoveButtonVariants = cva(
 const filterAddButtonVariants = cva(
     [
         'inline-flex shrink-0 items-center justify-center text-foreground transition',
-        '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:stroke-[1.5px]'
+        '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:stroke-[1.5px]',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
     ],
     {
         variants: {
@@ -316,7 +324,8 @@ const filterAddButtonVariants = cva(
 
 const filterOperatorVariants = cva(
     [
-        'focus-visible:z-1 relative flex shrink-0 items-center text-muted-foreground transition hover:text-foreground data-[state=open]:text-foreground'
+        'focus-visible:z-1 relative flex shrink-0 items-center whitespace-nowrap text-muted-foreground transition hover:text-foreground data-[state=open]:text-foreground',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
     ],
     {
         variants: {
@@ -371,7 +380,10 @@ const filterFieldLabelVariants = cva(
 );
 
 const filterFieldValueVariants = cva(
-    'focus-visible:z-1 relative flex shrink-0 items-center gap-1 text-foreground transition',
+    [
+        'focus-visible:z-1 relative flex min-w-0 shrink items-center gap-1 text-foreground transition',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+    ],
     {
         variants: {
             variant: {
@@ -432,7 +444,7 @@ const filterFieldBetweenVariants = cva('flex shrink-0 items-center text-muted-fo
     }
 });
 
-const filtersContainerVariants = cva('flex flex-wrap items-center', {
+const filtersContainerVariants = cva('relative flex flex-wrap items-center', {
     variants: {
         variant: {
             solid: 'gap-2',
@@ -450,7 +462,7 @@ const filtersContainerVariants = cva('flex flex-wrap items-center', {
     }
 });
 
-const filterItemVariants = cva('flex items-center', {
+const filterItemVariants = cva('flex max-w-[calc(100vw-32px)] items-center', {
     variants: {
         variant: {
             solid: 'gap-px',
@@ -655,6 +667,7 @@ function FilterRemoveButton({className, icon = <X />, ...props}: FilterRemoveBut
 export interface FilterOption<T = unknown> {
     value: T;
     label: string;
+    detail?: string;
     icon?: React.ReactNode;
     metadata?: Record<string, unknown>;
 }
@@ -723,6 +736,7 @@ export interface FilterFieldConfig<T = unknown> {
     allowCustomValues?: boolean;
     className?: string;
     popoverContentClassName?: string;
+    triggerClassName?: string;
     selectedOptionsClassName?: string;
     // Grouping options (legacy support)
     groupLabel?: string;
@@ -731,6 +745,12 @@ export interface FilterFieldConfig<T = unknown> {
     offLabel?: string;
     // Input event handlers
     onInputChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    // Search event handler for select/multiselect fields
+    onSearchChange?: (searchTerm: string) => void;
+    // Controlled search value for select/multiselect fields
+    searchValue?: string;
+    // Shows loading indicator in the dropdown
+    isLoading?: boolean;
     // Default operator to use when creating a filter for this field
     defaultOperator?: string;
     // Hide the operator dropdown and only show the operator as text
@@ -738,6 +758,8 @@ export interface FilterFieldConfig<T = unknown> {
     // Controlled values support for this field
     value?: T[];
     onValueChange?: (values: T[]) => void;
+    // Auto-close dropdown after selection (even for multiselect types)
+    autoCloseOnSelect?: boolean;
 }
 
 // Helper functions to handle both flat and grouped field configurations
@@ -932,7 +954,7 @@ function FilterOperatorDropdown<T = unknown>({field, operator, values, onChange}
     // If hideOperatorSelect is true, just render the operator as plain text
     if (field.hideOperatorSelect) {
         return (
-            <div className="flex items-center border-x px-3 text-sm text-muted-foreground">
+            <div className="flex items-center self-stretch whitespace-nowrap border border-r-[0px] px-3 text-sm text-muted-foreground">
                 {operatorLabel}
             </div>
         );
@@ -984,16 +1006,86 @@ function SelectOptionsPopover<T = unknown>({
     inline = false
 }: SelectOptionsPopoverProps<T>) {
     const [open, setOpen] = useState(false);
-    const [searchInput, setSearchInput] = useState('');
+    const [searchInput, setSearchInput] = useState(field.searchValue || '');
+    // Track selected options separately so they persist during async search
+    const [cachedSelectedOptions, setCachedSelectedOptions] = useState<FilterOption<T>[]>([]);
     const context = useFilterContext();
+
+    // Sync searchInput with controlled searchValue
+    useEffect(() => {
+        if (field.searchValue !== undefined) {
+            setSearchInput(field.searchValue);
+        }
+    }, [field.searchValue]);
 
     const isMultiSelect = field.type === 'multiselect' || values.length > 1;
     const effectiveValues = (field.value !== undefined ? (field.value as T[]) : values) || [];
-    const selectedOptions = field.options?.filter(opt => effectiveValues.includes(opt.value)) || [];
+
+    // Focus the search input when the popover opens
+    useEffect(() => {
+        if (open && field.searchable !== false) {
+            // Use setTimeout to ensure the popover is fully rendered
+            setTimeout(() => {
+                const input = document.querySelector('[cmdk-input]') as HTMLInputElement;
+                if (input) {
+                    input.focus();
+                }
+            }, 0);
+        }
+    }, [open, field.searchable]);
+
+    // For async search, we need to preserve selected options even when they're not in search results
+    // Memoize to get stable reference for useEffect dependency
+    const optionsFromField = useMemo(
+        () => field.options?.filter(opt => effectiveValues.includes(opt.value)) || [],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [field.options, JSON.stringify(effectiveValues)]
+    );
+
+    // Sync cached options when field options or selected values change
+    // This preserves selected item labels/icons during async search when they're not in results
+    useEffect(() => {
+        if (effectiveValues.length === 0) {
+            setCachedSelectedOptions([]);
+            return;
+        }
+
+        if (optionsFromField.length > 0) {
+            setCachedSelectedOptions((prev) => {
+                // Build result by iterating over selected values
+                const result: FilterOption<T>[] = [];
+                for (const value of effectiveValues) {
+                    // Prefer new option, fall back to cached option
+                    const option = optionsFromField.find(opt => opt.value === value)
+                        ?? prev.find(opt => opt.value === value);
+                    if (option) {
+                        result.push(option);
+                    }
+                }
+
+                return result;
+            });
+        }
+    }, [optionsFromField, effectiveValues]);
+
+    // Use cached options for display, falling back to field options
+    // This ensures selected items stay visible during async search
+    const selectedOptions = effectiveValues.length > 0
+        ? (cachedSelectedOptions.length > 0 ? cachedSelectedOptions : optionsFromField)
+        : [];
     const unselectedOptions = field.options?.filter(opt => !effectiveValues.includes(opt.value)) || [];
+
+    const handleSearchChange = (value: string) => {
+        setSearchInput(value);
+        field.onSearchChange?.(value);
+    };
 
     const handleClose = () => {
         setOpen(false);
+        // Only clear search if not controlled
+        if (field.searchValue === undefined) {
+            setTimeout(() => setSearchInput(''), 200);
+        }
         onClose?.();
     };
 
@@ -1007,11 +1099,18 @@ function SelectOptionsPopover<T = unknown>({
                             className="h-8.5 text-sm"
                             placeholder={context.i18n.placeholders.searchField(field.label || '')}
                             value={searchInput}
-                            onValueChange={setSearchInput}
+                            onValueChange={handleSearchChange}
                         />
                     )}
-                    <CommandList>
-                        <CommandEmpty>{context.i18n.noResultsFound}</CommandEmpty>
+                    <CommandList className="outline-none">
+                        {field.isLoading ? (
+                            <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+                                <Loader2 className="mr-2 size-4 animate-spin" />
+                                {context.i18n.loading}
+                            </div>
+                        ) : (
+                            <CommandEmpty>{context.i18n.noResultsFound}</CommandEmpty>
+                        )}
 
                         {/* Selected items */}
                         {selectedOptions.length > 0 && (
@@ -1038,7 +1137,10 @@ function SelectOptionsPopover<T = unknown>({
                                         }}
                                     >
                                         {option.icon && option.icon}
-                                        <span className="truncate text-accent-foreground">{option.label}</span>
+                                        <div className="flex flex-col overflow-hidden">
+                                            <span className="truncate text-accent-foreground" title={option.label}>{option.label}</span>
+                                            {option.detail && <span className="truncate text-sm text-muted-foreground" title={option.detail}>{option.detail}</span>}
+                                        </div>
                                         <Check className="ms-auto text-primary" />
                                     </CommandItem>
                                 ))}
@@ -1054,7 +1156,7 @@ function SelectOptionsPopover<T = unknown>({
                                         <CommandItem
                                             key={String(option.value)}
                                             className="group flex items-center gap-2"
-                                            value={option.label}
+                                            value={option.label + (option.detail ? ` - ${option.detail}` : '')}
                                             onSelect={() => {
                                                 if (isMultiSelect) {
                                                     const newValues = [...effectiveValues, option.value] as T[];
@@ -1065,6 +1167,10 @@ function SelectOptionsPopover<T = unknown>({
                                                         field.onValueChange(newValues);
                                                     } else {
                                                         onChange(newValues);
+                                                    }
+                                                    // Auto-close if configured
+                                                    if (field.autoCloseOnSelect) {
+                                                        onClose?.();
                                                     }
                                                     // For multiselect, don't close the popover to allow multiple selections
                                                 } else {
@@ -1078,7 +1184,10 @@ function SelectOptionsPopover<T = unknown>({
                                             }}
                                         >
                                             {option.icon && option.icon}
-                                            <span className="truncate text-accent-foreground">{option.label}</span>
+                                            <div className="flex flex-col overflow-hidden">
+                                                <span className="truncate text-accent-foreground" title={option.label}>{option.label}</span>
+                                                {option.detail && <span className="truncate text-sm text-muted-foreground" title={option.detail}>{option.detail}</span>}
+                                            </div>
                                             <Check className="ms-auto text-primary opacity-0" />
                                         </CommandItem>
                                     ))}
@@ -1096,32 +1205,32 @@ function SelectOptionsPopover<T = unknown>({
             open={open}
             onOpenChange={(isOpen) => {
                 setOpen(isOpen);
-                if (!isOpen) {
+                if (!isOpen && field.searchValue === undefined) {
                     setTimeout(() => setSearchInput(''), 200);
                 }
             }}
         >
             <PopoverTrigger
-                className={filterFieldValueVariants({
+                className={cn(filterFieldValueVariants({
                     variant: context.variant,
                     size: context.size,
                     cursorPointer: context.cursorPointer
-                })}
+                }), field.triggerClassName ?? 'max-w-[240px]')}
             >
-                <div className="flex items-center gap-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
                     {field.customValueRenderer ? (
                         field.customValueRenderer(values, field.options || [])
                     ) : (
                         <>
-                            {selectedOptions.length > 0 && (
-                                <div className={cn('-space-x-1.5 flex items-center', field.selectedOptionsClassName)}>
+                            {selectedOptions.length > 0 && selectedOptions.some(option => option.icon) && (
+                                <div className={cn('-space-x-0.5 flex shrink-0 items-center', field.selectedOptionsClassName)}>
                                     {selectedOptions.slice(0, 3).map(option => (
                                         <div key={String(option.value)}>{option.icon}</div>
                                     ))}
                                 </div>
                             )}
                             {selectedOptions.length === 1
-                                ? selectedOptions[0].label
+                                ? <span className="min-w-0 truncate text-accent-foreground" title={selectedOptions[0].detail ? `${selectedOptions[0].label} - ${selectedOptions[0].detail}` : selectedOptions[0].label}>{selectedOptions[0].label}</span>
                                 : selectedOptions.length > 1
                                     ? `${selectedOptions.length} ${context.i18n.selectedCount}`
                                     : context.i18n.select}
@@ -1129,18 +1238,31 @@ function SelectOptionsPopover<T = unknown>({
                     )}
                 </div>
             </PopoverTrigger>
-            <PopoverContent align="start" className={cn('w-[200px] p-0', field.className)}>
+            <PopoverContent
+                align="start"
+                className={cn(
+                    'p-0 data-[state=closed]:!animation-none data-[state=closed]:!duration-0',
+                    field.className || 'w-[200px]'
+                )}
+            >
                 <Command>
                     {field.searchable !== false && (
                         <CommandInput
                             className="h-[34px] text-sm"
                             placeholder={context.i18n.placeholders.searchField(field.label || '')}
                             value={searchInput}
-                            onValueChange={setSearchInput}
+                            onValueChange={handleSearchChange}
                         />
                     )}
-                    <CommandList>
-                        <CommandEmpty>{context.i18n.noResultsFound}</CommandEmpty>
+                    <CommandList className="outline-none">
+                        {field.isLoading ? (
+                            <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+                                <Loader2 className="mr-2 size-4 animate-spin" />
+                                {context.i18n.loading}
+                            </div>
+                        ) : (
+                            <CommandEmpty>{context.i18n.noResultsFound}</CommandEmpty>
+                        )}
 
                         {/* Selected items */}
                         {selectedOptions.length > 0 && (
@@ -1162,7 +1284,10 @@ function SelectOptionsPopover<T = unknown>({
                                         }}
                                     >
                                         {option.icon && option.icon}
-                                        <span className="truncate text-accent-foreground">{option.label}</span>
+                                        <div className="flex flex-col overflow-hidden">
+                                            <span className="truncate text-accent-foreground" title={option.label}>{option.label}</span>
+                                            {option.detail && <span className="truncate text-sm text-muted-foreground" title={option.detail}>{option.detail}</span>}
+                                        </div>
                                         <Check className="ms-auto text-primary" />
                                     </CommandItem>
                                 ))}
@@ -1178,7 +1303,7 @@ function SelectOptionsPopover<T = unknown>({
                                         <CommandItem
                                             key={String(option.value)}
                                             className="group flex items-center gap-2"
-                                            value={option.label}
+                                            value={option.label + (option.detail ? ` - ${option.detail}` : '')}
                                             onSelect={() => {
                                                 if (isMultiSelect) {
                                                     const newValues = [...values, option.value] as T[];
@@ -1186,6 +1311,10 @@ function SelectOptionsPopover<T = unknown>({
                                                         return; // Don't exceed max selections
                                                     }
                                                     onChange(newValues);
+                                                    // Auto-close if configured
+                                                    if (field.autoCloseOnSelect) {
+                                                        handleClose();
+                                                    }
                                                 } else {
                                                     onChange([option.value] as T[]);
                                                     setOpen(false);
@@ -1194,7 +1323,10 @@ function SelectOptionsPopover<T = unknown>({
                                             }}
                                         >
                                             {option.icon && option.icon}
-                                            <span className="truncate text-accent-foreground">{option.label}</span>
+                                            <div className="flex flex-col overflow-hidden">
+                                                <span className="truncate text-accent-foreground" title={option.label}>{option.label}</span>
+                                                {option.detail && <span className="truncate text-sm text-muted-foreground" title={option.detail}>{option.detail}</span>}
+                                            </div>
                                             <Check className="ms-auto text-primary opacity-0" />
                                         </CommandItem>
                                     ))}
@@ -1210,8 +1342,33 @@ function SelectOptionsPopover<T = unknown>({
 
 function FilterValueSelector<T = unknown>({field, values, onChange, operator}: FilterValueSelectorProps<T>) {
     const [open, setOpen] = useState(false);
-    const [searchInput, setSearchInput] = useState('');
+    const [searchInput, setSearchInput] = useState(field.searchValue || '');
     const context = useFilterContext();
+
+    // Sync searchInput with controlled searchValue
+    useEffect(() => {
+        if (field.searchValue !== undefined) {
+            setSearchInput(field.searchValue);
+        }
+    }, [field.searchValue]);
+
+    const handleSearchChange = (value: string) => {
+        setSearchInput(value);
+        field.onSearchChange?.(value);
+    };
+
+    // Focus the search input when the popover opens
+    useEffect(() => {
+        if (open && field.searchable !== false) {
+            // Use setTimeout to ensure the popover is fully rendered
+            setTimeout(() => {
+                const input = document.querySelector('[cmdk-input]') as HTMLInputElement;
+                if (input) {
+                    input.focus();
+                }
+            }, 0);
+        }
+    }, [open, field.searchable]);
 
     // Hide value input for empty/not empty operators
     if (operator === 'empty' || operator === 'not_empty') {
@@ -1311,7 +1468,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
             return (
                 <div className="flex items-center" data-slot="filters-item">
                     <FilterInput
-                        className={cn('w-36', field.className)}
+                        className={cn('w-36 max-w-full', field.className)}
                         field={field}
                         type="datetime-local"
                         value={startDateTime}
@@ -1325,7 +1482,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
                         {context.i18n.to}
                     </div>
                     <FilterInput
-                        className={cn('w-36', field.className)}
+                        className={cn('w-36 max-w-full', field.className)}
                         field={field}
                         type="datetime-local"
                         value={endDateTime}
@@ -1338,7 +1495,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
 
         return (
             <FilterInput
-                className={cn('w-36', field.className)}
+                className={cn('w-36 max-w-full', field.className)}
                 field={field}
                 type="datetime-local"
                 value={(values[0] as string) || ''}
@@ -1402,7 +1559,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
                 })}
             >
                 <FilterInput
-                    className={cn('w-24', field.className)}
+                    className={cn('w-24 max-w-full', field.className)}
                     field={field}
                     type="date"
                     value={startDate}
@@ -1416,7 +1573,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
                     {context.i18n.to}
                 </div>
                 <FilterInput
-                    className={cn('w-24', field.className)}
+                    className={cn('w-24 max-w-full', field.className)}
                     field={field}
                     type="date"
                     value={endDate}
@@ -1436,7 +1593,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
             return (
                 <div className="flex items-center" data-slot="filters-item">
                     <FilterInput
-                        className={cn('w-16', field.className)}
+                        className={cn('w-16 max-w-full', field.className)}
                         field={field}
                         max={field.max}
                         min={field.min}
@@ -1455,7 +1612,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
                         {context.i18n.to}
                     </div>
                     <FilterInput
-                        className={cn('w-16', field.className)}
+                        className={cn('w-16 max-w-full', field.className)}
                         field={field}
                         max={field.max}
                         min={field.min}
@@ -1517,7 +1674,7 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
             open={open}
             onOpenChange={(isOpen) => {
                 setOpen(isOpen);
-                if (!isOpen) {
+                if (!isOpen && field.searchValue === undefined) {
                     setTimeout(() => setSearchInput(''), 200);
                 }
             }}
@@ -1529,20 +1686,20 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
                     cursorPointer: context.cursorPointer
                 })}
             >
-                <div className="flex items-center gap-1.5">
+                <div className="flex w-full min-w-0 items-center gap-1.5">
                     {field.customValueRenderer ? (
                         field.customValueRenderer(values, field.options || [])
                     ) : (
                         <>
                             {selectedOptions.length > 0 && (
-                                <div className="flex items-center -space-x-1.5">
+                                <div className="flex shrink-0 items-center -space-x-1.5">
                                     {selectedOptions.slice(0, 3).map(option => (
                                         <div key={String(option.value)}>{option.icon}</div>
                                     ))}
                                 </div>
                             )}
                             {selectedOptions.length === 1
-                                ? selectedOptions[0].label
+                                ? <span className="min-w-0 truncate text-accent-foreground" title={selectedOptions[0].detail ? `${selectedOptions[0].label} - ${selectedOptions[0].detail}` : selectedOptions[0].label}>{selectedOptions[0].label}</span>
                                 : selectedOptions.length > 1
                                     ? `${selectedOptions.length} ${context.i18n.selectedCount}`
                                     : context.i18n.select}
@@ -1550,18 +1707,25 @@ function FilterValueSelector<T = unknown>({field, values, onChange, operator}: F
                     )}
                 </div>
             </PopoverTrigger>
-            <PopoverContent className={cn('w-36 p-0', field.popoverContentClassName)}>
+            <PopoverContent className={cn('w-36 p-0 data-[state=closed]:!animation-none data-[state=closed]:!duration-0', field.popoverContentClassName)}>
                 <Command>
                     {field.searchable !== false && (
                         <CommandInput
                             className="h-[34px] text-sm"
                             placeholder={context.i18n.placeholders.searchField(field.label || '')}
                             value={searchInput}
-                            onValueChange={setSearchInput}
+                            onValueChange={handleSearchChange}
                         />
                     )}
-                    <CommandList>
-                        <CommandEmpty>{context.i18n.noResultsFound}</CommandEmpty>
+                    <CommandList className="outline-none">
+                        {field.isLoading ? (
+                            <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+                                <Loader2 className="mr-2 size-4 animate-spin" />
+                                {context.i18n.loading}
+                            </div>
+                        ) : (
+                            <CommandEmpty>{context.i18n.noResultsFound}</CommandEmpty>
+                        )}
 
                         {/* Selected items */}
                         {selectedOptions.length > 0 && (
@@ -1679,7 +1843,7 @@ export const FiltersContent = <T = unknown,>({filters, fields, onChange}: Filter
     );
 
     return (
-        <div className={cn(filtersContainerVariants({variant: context.variant, size: context.size}), context.className)}>
+        <div className={cn(filtersContainerVariants({variant: context.variant, size: context.size}), filters.length > 0 && 'w-full', context.className)}>
             {filters.map((filter) => {
                 const field = fieldsMap[filter.field];
                 if (!field) {
@@ -1735,6 +1899,12 @@ interface FiltersProps<T = unknown> {
     addButtonIcon?: React.ReactNode;
     addButtonClassName?: string;
     addButton?: React.ReactNode;
+    showClearButton?: boolean;
+    clearButtonText?: string;
+    clearButtonIcon?: React.ReactNode;
+    clearButtonClassName?: string;
+    clearButton?: React.ReactNode;
+    onClear?: () => void;
     variant?: 'solid' | 'outline';
     size?: 'sm' | 'md' | 'lg';
     radius?: 'md' | 'full';
@@ -1745,6 +1915,8 @@ interface FiltersProps<T = unknown> {
     allowMultiple?: boolean;
     popoverContentClassName?: string;
     popoverAlign?: 'start' | 'center' | 'end';
+    keyboardShortcut?: string;
+    onActiveFieldChange?: (fieldKey: string | null) => void;
 }
 
 export function Filters<T = unknown>({
@@ -1757,6 +1929,12 @@ export function Filters<T = unknown>({
     addButtonIcon,
     addButtonClassName,
     addButton,
+    showClearButton = false,
+    clearButtonText,
+    clearButtonIcon,
+    clearButtonClassName,
+    clearButton,
+    onClear,
     variant = 'outline',
     size = 'md',
     radius = 'md',
@@ -1766,11 +1944,62 @@ export function Filters<T = unknown>({
     trigger,
     allowMultiple = true,
     popoverContentClassName,
-    popoverAlign = 'start'
+    popoverAlign = 'start',
+    keyboardShortcut,
+    onActiveFieldChange
 }: FiltersProps<T>) {
     const [addFilterOpen, setAddFilterOpen] = useState(false);
-    const [selectedFieldForOptions, setSelectedFieldForOptions] = useState<FilterFieldConfig<T> | null>(null);
+    const [selectedFieldKeyForOptions, setSelectedFieldKeyForOptions] = useState<string | null>(null);
     const [tempSelectedValues, setTempSelectedValues] = useState<unknown[]>([]);
+
+    // Notify parent when active field changes
+    useEffect(() => {
+        onActiveFieldChange?.(selectedFieldKeyForOptions);
+    }, [selectedFieldKeyForOptions, onActiveFieldChange]);
+
+    // Keyboard shortcut handler
+    useEffect(() => {
+        if (!keyboardShortcut) {
+            return;
+        }
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't trigger if user is typing in an input field
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                return;
+            }
+
+            // Check if the pressed key matches the shortcut (case-insensitive)
+            if (e.key.toLowerCase() === keyboardShortcut.toLowerCase() && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault();
+                setAddFilterOpen(prev => !prev);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [keyboardShortcut]);
+
+    // Focus the appropriate element when the popover opens
+    useEffect(() => {
+        if (addFilterOpen) {
+            // Use setTimeout to ensure the popover is fully rendered
+            setTimeout(() => {
+                // Always try to focus the search input first (if available)
+                const input = document.querySelector('[cmdk-input]') as HTMLInputElement;
+                if (input) {
+                    input.focus();
+                } else {
+                    // If no search input, focus the Command component directly to enable keyboard navigation
+                    const command = document.querySelector('[cmdk-root]') as HTMLElement;
+                    if (command) {
+                        command.focus();
+                    }
+                }
+            }, 0);
+        }
+    }, [addFilterOpen, selectedFieldKeyForOptions, showSearchInput]);
 
     // Merge provided i18n with defaults
     const mergedI18n: FilterI18nConfig = {
@@ -1791,6 +2020,9 @@ export function Filters<T = unknown>({
     };
 
     const fieldsMap = useMemo(() => getFieldsMap(fields), [fields]);
+
+    // Always get fresh field from fieldsMap to ensure we have updated options
+    const selectedFieldForOptions = selectedFieldKeyForOptions ? fieldsMap[selectedFieldKeyForOptions] : null;
 
     const updateFilter = useCallback(
         (filterId: string, updates: Partial<Filter<T>>) => {
@@ -1824,7 +2056,7 @@ export function Filters<T = unknown>({
             if (field && field.key) {
                 // For select and multiselect types, show options directly
                 if (field.type === 'select' || field.type === 'multiselect') {
-                    setSelectedFieldForOptions(field);
+                    setSelectedFieldKeyForOptions(field.key!);
                     // For multiselect, check if there's already a filter and use its values
                     const existingFilter = filters.find(f => f.field === fieldKey);
                     const initialValues = field.type === 'multiselect' && existingFilter ? existingFilter.values : [];
@@ -1872,6 +2104,26 @@ export function Filters<T = unknown>({
             if (!field.key) {
                 return;
             }
+            // Check if this filter already exists
+            const existingFilter = filters.find(f => f.field === field.key);
+            if (existingFilter) {
+                // Update existing filter
+                const updatedFilters = filters.map(f => (
+                    f.id === existingFilter.id
+                        ? {...f, values: values as T[]}
+                        : f
+                ));
+                onChange(updatedFilters);
+
+                // Always update tempSelectedValues to keep inline multiselect in sync
+                setTempSelectedValues(values as T[]);
+
+                if (closePopover) {
+                    setAddFilterOpen(false);
+                    setSelectedFieldKeyForOptions(null);
+                }
+                return;
+            }
 
             const defaultOperator = field.defaultOperator || (field.type === 'multiselect' ? 'is_any_of' : 'is');
 
@@ -1895,7 +2147,7 @@ export function Filters<T = unknown>({
 
             if (closePopover) {
                 setAddFilterOpen(false);
-                setSelectedFieldForOptions(null);
+                setSelectedFieldKeyForOptions(null);
                 setTempSelectedValues([]);
             } else {
                 // For multiselect, keep popover open but update temp values
@@ -1940,171 +2192,12 @@ export function Filters<T = unknown>({
                 allowMultiple
             }}
         >
-            <div className={cn(filtersContainerVariants({variant, size}), className)}>
-                {showAddButton && selectableFields.length > 0 && (
-                    <Popover
-                        open={addFilterOpen}
-                        onOpenChange={(open) => {
-                            setAddFilterOpen(open);
-                            if (!open) {
-                                setSelectedFieldForOptions(null);
-                                setTempSelectedValues([]);
-                            }
-                        }}
-                    >
-                        <PopoverTrigger asChild>
-                            {addButton ? (
-                                addButton
-                            ) : (
-                                <button
-                                    className={cn(
-                                        filterAddButtonVariants({
-                                            variant: variant,
-                                            size: size,
-                                            cursorPointer: cursorPointer,
-                                            radius: radius
-                                        }),
-                                        addButtonClassName
-                                    )}
-                                    title={mergedI18n.addFilterTitle}
-                                    type='button'
-                                >
-                                    {addButtonIcon || <Plus />}
-                                    {addButtonText || mergedI18n.addFilter}
-                                </button>
-                            )}
-                        </PopoverTrigger>
-                        <PopoverContent align={popoverAlign} className={cn('w-[200px] p-0', popoverContentClassName)}>
-                            <Command>
-                                {selectedFieldForOptions ? (
-                                // Show original select/multiselect rendering without back button
-                                    <SelectOptionsPopover<T>
-                                        field={selectedFieldForOptions}
-                                        inline={true}
-                                        values={tempSelectedValues as T[]}
-                                        onChange={(values) => {
-                                            // For multiselect, create filter immediately but keep popover open
-                                            // For single select, create filter and close popover
-                                            const shouldClosePopover = selectedFieldForOptions.type === 'select';
-                                            addFilterWithOption(selectedFieldForOptions, values as unknown[], shouldClosePopover);
-                                        }}
-                                        onClose={() => setAddFilterOpen(false)}
-                                    />
-                                ) : (
-                                // Show field selection
-                                    <>
-                                        {showSearchInput && <CommandInput className="h-[34px]" placeholder={mergedI18n.searchFields} />}
-                                        <CommandList>
-                                            <CommandEmpty>{mergedI18n.noFieldsFound}</CommandEmpty>
-                                            {fields.map((item, index) => {
-                                                // Handle grouped fields (FilterFieldGroup structure)
-                                                if (isFieldGroup(item)) {
-                                                    const groupFields = item.fields.filter((field) => {
-                                                        // Include separators and labels for display
-                                                        if (field.type === 'separator') {
-                                                            return true;
-                                                        }
-                                                        // If allowMultiple is true, don't filter out fields that already have filters
-                                                        if (allowMultiple) {
-                                                            return true;
-                                                        }
-                                                        // Filter out fields that already have filters (default behavior)
-                                                        return !filters.some(filter => filter.field === field.key);
-                                                    });
-
-                                                    if (groupFields.length === 0) {
-                                                        return null;
-                                                    }
-
-                                                    return (
-                                                        <CommandGroup key={item.group || `group-${index}`} heading={item.group || 'Fields'}>
-                                                            {groupFields.map((field, fieldIndex) => {
-                                                                // Handle separator - use field.key if available, or generate stable key
-                                                                if (field.type === 'separator') {
-                                                                    const sepKey = field.key ?? `${item.group ?? `group-${index}`}-separator-${fieldIndex}`;
-                                                                    return <CommandSeparator key={sepKey} />;
-                                                                }
-
-                                                                // Regular field
-                                                                return (
-                                                                    <CommandItem
-                                                                        key={field.key ?? `${item.group ?? `group-${index}`}-field-${fieldIndex}`}
-                                                                        onSelect={() => field.key && addFilter(field.key)}
-                                                                    >
-                                                                        {field.icon}
-                                                                        <span>{field.label}</span>
-                                                                    </CommandItem>
-                                                                );
-                                                            })}
-                                                        </CommandGroup>
-                                                    );
-                                                }
-
-                                                // Handle group-level fields (new FilterFieldConfig structure with group property)
-                                                if (isGroupLevelField(item)) {
-                                                    const groupFields = item.fields!.filter((field) => {
-                                                        // Include separators and labels for display
-                                                        if (field.type === 'separator') {
-                                                            return true;
-                                                        }
-                                                        // If allowMultiple is true, don't filter out fields that already have filters
-                                                        if (allowMultiple) {
-                                                            return true;
-                                                        }
-                                                        // Filter out fields that already have filters (default behavior)
-                                                        return !filters.some(filter => filter.field === field.key);
-                                                    });
-
-                                                    if (groupFields.length === 0) {
-                                                        return null;
-                                                    }
-
-                                                    return (
-                                                        <CommandGroup key={item.group || `group-${index}`} heading={item.group || 'Fields'}>
-                                                            {groupFields.map((field) => {
-                                                                // Handle separator - use field.key if available, or generate stable key
-                                                                if (field.type === 'separator') {
-                                                                    const sepKey = field.key || `${item.group || `group-${index}`}-separator-${field.label || Math.random()}`;
-                                                                    return <CommandSeparator key={sepKey} />;
-                                                                }
-
-                                                                // Regular field
-                                                                return (
-                                                                    <CommandItem key={field.key} onSelect={() => field.key && addFilter(field.key)}>
-                                                                        {field.icon}
-                                                                        <span>{field.label}</span>
-                                                                    </CommandItem>
-                                                                );
-                                                            })}
-                                                        </CommandGroup>
-                                                    );
-                                                }
-
-                                                // Handle flat field configuration (backward compatibility)
-                                                const field = item as FilterFieldConfig<T>;
-
-                                                // Handle separator - use field.key if available
-                                                if (field.type === 'separator') {
-                                                    const sepKey = field.key || `flat-separator-${field.label || index}`;
-                                                    return <CommandSeparator key={sepKey} />;
-                                                }
-
-                                                // Regular field
-                                                return (
-                                                    <CommandItem key={field.key} onSelect={() => field.key && addFilter(field.key)}>
-                                                        {field.icon}
-                                                        <span>{field.label}</span>
-                                                    </CommandItem>
-                                                );
-                                            })}
-                                        </CommandList>
-                                    </>
-                                )}
-                            </Command>
-                        </PopoverContent>
-                    </Popover>
-                )}
-
+            <div className={cn(
+                filtersContainerVariants({variant, size}),
+                filters.length > 0 && 'w-full',
+                showClearButton && filters.length > 0 && 'sm:pr-24',
+                className
+            )}>
                 {filters.map((filter) => {
                     const field = fieldsMap[filter.field];
                     if (!field) {
@@ -2140,6 +2233,216 @@ export function Filters<T = unknown>({
                         </div>
                     );
                 })}
+
+                {showAddButton && selectableFields.length > 0 && (
+                    <Popover
+                        open={addFilterOpen}
+                        onOpenChange={(open) => {
+                            setAddFilterOpen(open);
+                            if (!open) {
+                                setSelectedFieldKeyForOptions(null);
+                                setTempSelectedValues([]);
+                            }
+                        }}
+                    >
+                        <PopoverTrigger asChild>
+                            {addButton ? (
+                                addButton
+                            ) : (
+                                <button
+                                    className={cn(
+                                        filterAddButtonVariants({
+                                            variant: variant,
+                                            size: size,
+                                            cursorPointer: cursorPointer,
+                                            radius: radius
+                                        }),
+                                        addButtonClassName
+                                    )}
+                                    title={mergedI18n.addFilterTitle}
+                                    type='button'
+                                >
+                                    {addButtonIcon || <Plus />}
+                                    {addButtonText || mergedI18n.addFilter}
+                                </button>
+                            )}
+                        </PopoverTrigger>
+                        <PopoverContent
+                            align={popoverAlign}
+                            className={cn(
+                                'p-0 data-[state=closed]:!animation-none data-[state=closed]:!duration-0',
+                                selectedFieldForOptions?.className || popoverContentClassName || 'w-[200px]'
+                            )}
+                        >
+                            {selectedFieldForOptions ? (
+                                // Show original select/multiselect rendering without back button
+                                // SelectOptionsPopover renders its own Command component when inline={true}
+                                <SelectOptionsPopover<T>
+                                    field={selectedFieldForOptions}
+                                    inline={true}
+                                    values={tempSelectedValues as T[]}
+                                    onChange={(values) => {
+                                        // For multiselect, create filter immediately but keep popover open
+                                        // For single select, create filter and close popover
+                                        const shouldClosePopover = selectedFieldForOptions.type === 'select';
+                                        addFilterWithOption(selectedFieldForOptions, values as unknown[], shouldClosePopover);
+                                    }}
+                                    onClose={() => {
+                                        setAddFilterOpen(false);
+                                        setSelectedFieldKeyForOptions(null);
+                                        setTempSelectedValues([]);
+                                    }}
+                                />
+                            ) : (
+                                // Show field selection - needs Command wrapper for search/list
+                                <Command className='outline-none' tabIndex={showSearchInput ? undefined : 0}>
+                                    {showSearchInput && <CommandInput className="h-[34px]" placeholder={mergedI18n.searchFields} />}
+                                    <CommandList className="outline-none">
+                                        <CommandEmpty>{mergedI18n.noFieldsFound}</CommandEmpty>
+                                        {fields.map((item, index) => {
+                                            // Handle grouped fields (FilterFieldGroup structure)
+                                            if (isFieldGroup(item)) {
+                                                const groupFields = item.fields.filter((field) => {
+                                                    // Include separators and labels for display
+                                                    if (field.type === 'separator') {
+                                                        return true;
+                                                    }
+                                                    // If allowMultiple is true, don't filter out fields that already have filters
+                                                    if (allowMultiple) {
+                                                        return true;
+                                                    }
+                                                    // Filter out fields that already have filters (default behavior)
+                                                    return !filters.some(filter => filter.field === field.key);
+                                                });
+
+                                                if (groupFields.length === 0) {
+                                                    return null;
+                                                }
+
+                                                return (
+                                                    <CommandGroup key={item.group || `group-${index}`} heading={item.group || 'Fields'}>
+                                                        {groupFields.map((field, fieldIndex) => {
+                                                            // Handle separator - use field.key if available, or generate stable key
+                                                            if (field.type === 'separator') {
+                                                                const sepKey = field.key ?? `${item.group ?? `group-${index}`}-separator-${fieldIndex}`;
+                                                                return <CommandSeparator key={sepKey} />;
+                                                            }
+
+                                                            // Regular field
+                                                            return (
+                                                                <CommandItem
+                                                                    key={field.key ?? `${item.group ?? `group-${index}`}-field-${fieldIndex}`}
+                                                                    onSelect={() => field.key && addFilter(field.key)}
+                                                                >
+                                                                    {field.icon}
+                                                                    <span>{field.label}</span>
+                                                                </CommandItem>
+                                                            );
+                                                        })}
+                                                    </CommandGroup>
+                                                );
+                                            }
+
+                                            // Handle group-level fields (new FilterFieldConfig structure with group property)
+                                            if (isGroupLevelField(item)) {
+                                                const groupFields = item.fields!.filter((field) => {
+                                                    // Include separators and labels for display
+                                                    if (field.type === 'separator') {
+                                                        return true;
+                                                    }
+                                                    // If allowMultiple is true, don't filter out fields that already have filters
+                                                    if (allowMultiple) {
+                                                        return true;
+                                                    }
+                                                    // Filter out fields that already have filters (default behavior)
+                                                    return !filters.some(filter => filter.field === field.key);
+                                                });
+
+                                                if (groupFields.length === 0) {
+                                                    return null;
+                                                }
+
+                                                return (
+                                                    <CommandGroup key={item.group || `group-${index}`} heading={item.group || 'Fields'}>
+                                                        {groupFields.map((field) => {
+                                                            // Handle separator - use field.key if available, or generate stable key
+                                                            if (field.type === 'separator') {
+                                                                const sepKey = field.key || `${item.group || `group-${index}`}-separator-${field.label || Math.random()}`;
+                                                                return <CommandSeparator key={sepKey} />;
+                                                            }
+
+                                                            // Regular field
+                                                            return (
+                                                                <CommandItem key={field.key} onSelect={() => field.key && addFilter(field.key)}>
+                                                                    {field.icon}
+                                                                    <span>{field.label}</span>
+                                                                </CommandItem>
+                                                            );
+                                                        })}
+                                                    </CommandGroup>
+                                                );
+                                            }
+
+                                            // Handle flat field configuration (backward compatibility)
+                                            const field = item as FilterFieldConfig<T>;
+
+                                            // Handle separator - use field.key if available
+                                            if (field.type === 'separator') {
+                                                const sepKey = field.key || `flat-separator-${field.label || index}`;
+                                                return <CommandSeparator key={sepKey} />;
+                                            }
+
+                                            // If allowMultiple is false, filter out fields that already have filters
+                                            if (!allowMultiple && filters.some(filter => filter.field === field.key)) {
+                                                return null;
+                                            }
+
+                                            // Regular field
+                                            return (
+                                                <CommandItem key={field.key} onSelect={() => field.key && addFilter(field.key)}>
+                                                    {field.icon}
+                                                    <span>{field.label}</span>
+                                                </CommandItem>
+                                            );
+                                        })}
+                                    </CommandList>
+                                </Command>
+                            )}
+                        </PopoverContent>
+                    </Popover>
+                )}
+
+                {/* Clear Button */}
+                {showClearButton && filters.length > 0 && (
+                    clearButton ? (
+                        clearButton
+                    ) : (
+                        <button
+                            className={cn(
+                                filterAddButtonVariants({
+                                    variant: variant,
+                                    size: size,
+                                    cursorPointer: cursorPointer,
+                                    radius: radius
+                                }),
+                                'border-0 bg-transparent hover:bg-transparent hover:text-foreground',
+                                'sm:absolute sm:right-0 sm:top-0',
+                                clearButtonClassName
+                            )}
+                            type='button'
+                            onClick={() => {
+                                if (onClear) {
+                                    onClear();
+                                } else {
+                                    onChange([]);
+                                }
+                            }}
+                        >
+                            {clearButtonIcon || <X />}
+                            {clearButtonText || mergedI18n.clearFilters}
+                        </button>
+                    )
+                )}
             </div>
         </FilterContext.Provider>
     );

@@ -1,9 +1,9 @@
-const assert = require('assert/strict');
+const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const sinon = require('sinon');
 const LimitService = require('@tryghost/limit-service');
 
-const WebhookTrigger = require('../../../../../core/server/services/webhooks/WebhookTrigger');
+const WebhookTrigger = require('../../../../../core/server/services/webhooks/webhook-trigger');
 
 const SIGNATURE_HEADER = 'X-Ghost-Signature';
 const SIGNATURE_REGEX = /^sha256=[a-z0-9]+, t=\d+$/;

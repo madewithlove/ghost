@@ -1,5 +1,5 @@
 const models = require('../../models');
-const getPostServiceInstance = require('../../services/posts/posts-service');
+const getPostServiceInstance = require('../../services/posts/posts-service-instance');
 const postsService = getPostServiceInstance();
 
 /** @type {import('@tryghost/api-framework').Controller} */
@@ -18,7 +18,7 @@ const controller = {
                 filter: 'type:post+status:[draft,published,scheduled,sent]',
                 limit: '10000',
                 order: 'updated_at DESC',
-                columns: ['id', 'url', 'title', 'status', 'published_at', 'visibility']
+                columns: ['id', 'uuid', 'url', 'title', 'slug', 'status', 'published_at', 'visibility']
             };
 
             return postsService.browsePosts(options);
@@ -37,7 +37,7 @@ const controller = {
                 filter: 'type:page+status:[draft,published,scheduled]',
                 limit: '10000',
                 order: 'updated_at DESC',
-                columns: ['id', 'url', 'title', 'status', 'published_at', 'visibility']
+                columns: ['id', 'uuid', 'url', 'title', 'slug', 'status', 'published_at', 'visibility']
             };
 
             return postsService.browsePosts(options);

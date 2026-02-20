@@ -73,8 +73,6 @@ export class GhostManager {
                 mail__options__secure: 'false',
                 // other services configuration
                 portal__url: config.portalUrl || `http://localhost:${PORTAL.PORT}/portal.min.js`,
-                // Use React admin shell if specified
-                ...(process.env.USE_REACT_SHELL === 'true' ? {USE_REACT_SHELL: 'true'} : {}),
                 ...(config.config ? config.config : {})
             } as Record<string, string>;
 

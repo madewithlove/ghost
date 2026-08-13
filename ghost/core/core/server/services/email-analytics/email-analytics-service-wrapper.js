@@ -48,6 +48,7 @@ class EmailAnalyticsServiceWrapper {
 
         const EmailAnalyticsService = require('./email-analytics-service');
         const settings = require('../../../shared/settings-cache');
+        const labs = require('../../../shared/labs');
         const {queries} = require('./lib/queries');
 
         // Use unified email adapter (handles both sending and analytics)
@@ -77,7 +78,10 @@ class EmailAnalyticsServiceWrapper {
                 configService: config,
                 settingsCache: settings,
                 labs,
-                errorHandler
+                errorHandler,
+                // Upstream moved tag construction out of the analytics provider in
+                // v6.57.1, so the caller's tags are threaded to the adapter here.
+                mailgunTags
             };
 
             // Merge with provider-specific config from adapters.email[provider]

@@ -12,7 +12,6 @@ import type {AdapterConstructor} from './types';
 // ghost/core, so it is required rather than imported. Converting it to
 // TypeScript is the tidier end state and belongs with the upstream PR
 // (TryGhost/Ghost#28247), not with a version sync.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const EmailProviderBase = require('../../adapters/email/EmailProviderBase') as AdapterConstructor;
 
 /**

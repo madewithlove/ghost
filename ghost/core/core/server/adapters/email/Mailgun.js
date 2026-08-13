@@ -26,7 +26,7 @@ class Mailgun extends EmailProviderBase {
     constructor(config = {}) {
         super(config);
 
-        const {configService, settingsCache, labs, errorHandler} = config;
+        const {configService, settingsCache, errorHandler, mailgunTags} = config;
 
         // Only initialize providers if we have the required dependencies
         if (configService && settingsCache) {
@@ -44,11 +44,14 @@ class Mailgun extends EmailProviderBase {
             });
 
             // As of Ghost v6.57.1 the analytics provider no longer derives its own
-            // tags, so the caller supplies them. This reproduces the defaults it
-            // used to build internally.
-            const tags = ['bulk-email'];
-            if (configService.get('bulkEmail:mailgun:tag')) {
-                tags.push(configService.get('bulkEmail:mailgun:tag'));
+            // tags, so the caller supplies them. Prefer the tags handed to the
+            // adapter, and otherwise reproduce the defaults it used to build.
+            let tags = mailgunTags;
+            if (!Array.isArray(tags)) {
+                tags = ['bulk-email'];
+                if (configService.get('bulkEmail:mailgun:tag')) {
+                    tags.push(configService.get('bulkEmail:mailgun:tag'));
+                }
             }
 
             // Initialize the existing analytics provider

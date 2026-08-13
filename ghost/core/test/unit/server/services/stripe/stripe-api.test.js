@@ -1,11 +1,11 @@
 const assert = require('node:assert/strict');
 const {assertExists} = require('../../../../utils/assertions');
 const sinon = require('sinon');
-const rewire = require('rewire');
+const stripe = require('stripe');
+const i18n = require('../../../../../core/server/services/i18n');
+const StripeAPI = require('../../../../../core/server/services/stripe/stripe-api');
 
-require('../../../../../core/server/services/i18n').init();
-const {t: i18nT} = require('../../../../../core/server/services/i18n');
-const StripeAPI = rewire('../../../../../core/server/services/stripe/stripe-api');
+i18n.init();
 
 describe('StripeAPI', function () {
     const mockCustomerEmail = 'foo@example.com';
@@ -31,8 +31,7 @@ describe('StripeAPI', function () {
                 }
             };
             mockLabsIsSet = sinon.stub(mockLabs, 'isSet');
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
             api.configure({
                 checkoutSessionSuccessUrl: '/success',
                 checkoutSessionCancelUrl: '/cancel',
@@ -65,6 +64,12 @@ describe('StripeAPI', function () {
 
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.success_url);
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.cancel_url);
+        });
+
+        it('explicitly disables Managed Payments', async function () {
+            await api.createCheckoutSession('priceId', null, {});
+
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.managed_payments, {enabled: false});
         });
 
         it('sets valid trialDays', async function () {
@@ -209,8 +214,7 @@ describe('StripeAPI', function () {
                 }
             };
             mockLabsIsSet = sinon.stub(mockLabs, 'isSet');
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
             api.configure({
                 checkoutSessionSuccessUrl: '/success',
                 checkoutSessionCancelUrl: '/cancel',
@@ -229,6 +233,12 @@ describe('StripeAPI', function () {
 
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.success_url);
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.cancel_url);
+        });
+
+        it('createCheckoutSetupSession explicitly disables Managed Payments', async function () {
+            await api.createCheckoutSetupSession({id: mockCustomerId, email: mockCustomerEmail}, {});
+
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.managed_payments, {enabled: false});
         });
 
         it('createCheckoutSetupSession does not send currency if additionalPaymentMethods flag is off', async function () {
@@ -256,8 +266,7 @@ describe('StripeAPI', function () {
                         })
                     }
                 };
-                const mockStripeConstructor = sinon.stub().returns(mockStripe);
-                StripeAPI.__set__('Stripe', mockStripeConstructor);
+                sinon.stub(stripe, 'Stripe').returns(mockStripe);
                 api.configure({
                     secretKey: ''
                 });
@@ -285,8 +294,7 @@ describe('StripeAPI', function () {
                         })
                     }
                 };
-                const mockStripeConstructor = sinon.stub().returns(mockStripe);
-                StripeAPI.__set__('Stripe', mockStripeConstructor);
+                sinon.stub(stripe, 'Stripe').returns(mockStripe);
                 api.configure({
                     secretKey: ''
                 });
@@ -335,8 +343,7 @@ describe('StripeAPI', function () {
                         })
                     }
                 };
-                const mockStripeConstructor = sinon.stub().returns(mockStripe);
-                StripeAPI.__set__('Stripe', mockStripeConstructor);
+                sinon.stub(stripe, 'Stripe').returns(mockStripe);
                 api.configure({
                     secretKey: ''
                 });
@@ -364,8 +371,7 @@ describe('StripeAPI', function () {
                     update: sinon.stub().resolves(mockSubscription)
                 }
             };
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
             api.configure({
                 secretKey: ''
             });
@@ -404,8 +410,7 @@ describe('StripeAPI', function () {
                     update: sinon.stub().resolves(mockSubscription)
                 }
             };
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
             api.configure({
                 secretKey: ''
             });
@@ -426,7 +431,7 @@ describe('StripeAPI', function () {
         });
     });
 
-    describe('createCheckoutSetupSession automatic tax flag', function () {
+    describe('createCheckoutSession automatic tax flag', function () {
         beforeEach(function () {
             mockStripe = {
                 checkout: {
@@ -440,8 +445,7 @@ describe('StripeAPI', function () {
             };
             mockLabsIsSet = sinon.stub(mockLabs, 'isSet');
             mockLabsIsSet.withArgs('stripeAutomaticTax').returns(true);
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
             api.configure({
                 checkoutSessionSuccessUrl: '/success',
                 checkoutSessionCancelUrl: '/cancel',
@@ -467,6 +471,7 @@ describe('StripeAPI', function () {
                 trialDays: null
             });
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.customer_update);
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.customer_update, {address: 'auto', name: 'auto'});
         });
 
         it('createCheckoutSession does not add customer_update if automatic tax flag is enabled and customer is undefined', async function () {
@@ -496,6 +501,41 @@ describe('StripeAPI', function () {
             });
             assert.equal(mockStripe.checkout.sessions.create.firstCall.firstArg.customer_update, undefined);
         });
+
+        it('createCheckoutSession adds tax_id_collection when automatic tax flag is enabled', async function () {
+            const mockCustomer = {
+                id: mockCustomerId,
+                customer_email: mockCustomerEmail,
+                name: mockCustomerName
+            };
+
+            await api.createCheckoutSession('priceId', mockCustomer, {
+                trialDays: null
+            });
+            assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.tax_id_collection);
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.tax_id_collection, {enabled: true});
+        });
+
+        it('createCheckoutSession does not add tax_id_collection when automatic tax flag is disabled', async function () {
+            const mockCustomer = {
+                id: mockCustomerId,
+                customer_email: mockCustomerEmail,
+                name: mockCustomerName
+            };
+            // set enableAutomaticTax: false
+            api.configure({
+                checkoutSessionSuccessUrl: '/success',
+                checkoutSessionCancelUrl: '/cancel',
+                checkoutSetupSessionSuccessUrl: '/setup-success',
+                checkoutSetupSessionCancelUrl: '/setup-cancel',
+                secretKey: '',
+                enableAutomaticTax: false
+            });
+            await api.createCheckoutSession('priceId', mockCustomer, {
+                trialDays: null
+            });
+            assert.equal(mockStripe.checkout.sessions.create.firstCall.firstArg.tax_id_collection, undefined);
+        });
     });
 
     describe('createDonationCheckoutSession', function () {
@@ -508,8 +548,7 @@ describe('StripeAPI', function () {
                 }
             };
             sinon.stub(mockLabs, 'isSet');
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
             api.configure({
                 checkoutSessionSuccessUrl: '/success',
                 checkoutSessionCancelUrl: '/cancel',
@@ -528,6 +567,12 @@ describe('StripeAPI', function () {
 
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.success_url);
             assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.cancel_url);
+        });
+
+        it('createDonationCheckoutSession explicitly disables Managed Payments', async function () {
+            await api.createDonationCheckoutSession({priceId: 'priceId', successUrl: '/success', cancelUrl: '/cancel', metadata: {}});
+
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.managed_payments, {enabled: false});
         });
 
         it('createDonationCheckoutSession does not send currency if additionalPaymentMethods flag is off', async function () {
@@ -657,6 +702,79 @@ describe('StripeAPI', function () {
 
             assert(mockStripe.checkout.sessions.create.firstCall.firstArg.custom_fields.length <= 3);
         });
+
+        it('createDonationCheckoutSession adds customer_update when automatic tax is enabled and customer is provided', async function () {
+            api.configure({
+                checkoutSessionSuccessUrl: '/success',
+                checkoutSessionCancelUrl: '/cancel',
+                checkoutSetupSessionSuccessUrl: '/setup-success',
+                checkoutSetupSessionCancelUrl: '/setup-cancel',
+                secretKey: '',
+                enableAutomaticTax: true
+            });
+
+            const mockCustomer = {
+                id: mockCustomerId,
+                email: mockCustomerEmail,
+                name: mockCustomerName
+            };
+
+            await api.createDonationCheckoutSession({
+                priceId: 'priceId',
+                successUrl: '/success',
+                cancelUrl: '/cancel',
+                metadata: {},
+                customer: mockCustomer
+            });
+
+            assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.customer_update);
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.customer_update, {address: 'auto', name: 'auto'});
+        });
+
+        it('createDonationCheckoutSession adds tax_id_collection when automatic tax is enabled', async function () {
+            api.configure({
+                checkoutSessionSuccessUrl: '/success',
+                checkoutSessionCancelUrl: '/cancel',
+                checkoutSetupSessionSuccessUrl: '/setup-success',
+                checkoutSetupSessionCancelUrl: '/setup-cancel',
+                secretKey: '',
+                enableAutomaticTax: true
+            });
+
+            await api.createDonationCheckoutSession({
+                priceId: 'priceId',
+                successUrl: '/success',
+                cancelUrl: '/cancel',
+                metadata: {},
+                customer: null,
+                customerEmail: mockCustomerEmail
+            });
+
+            assertExists(mockStripe.checkout.sessions.create.firstCall.firstArg.tax_id_collection);
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.tax_id_collection, {enabled: true});
+        });
+
+        it('createDonationCheckoutSession does not add tax_id_collection when automatic tax is disabled', async function () {
+            api.configure({
+                checkoutSessionSuccessUrl: '/success',
+                checkoutSessionCancelUrl: '/cancel',
+                checkoutSetupSessionSuccessUrl: '/setup-success',
+                checkoutSetupSessionCancelUrl: '/setup-cancel',
+                secretKey: '',
+                enableAutomaticTax: false
+            });
+
+            await api.createDonationCheckoutSession({
+                priceId: 'priceId',
+                successUrl: '/success',
+                cancelUrl: '/cancel',
+                metadata: {},
+                customer: null,
+                customerEmail: mockCustomerEmail
+            });
+
+            assert.equal(mockStripe.checkout.sessions.create.firstCall.firstArg.tax_id_collection, undefined);
+        });
     });
 
     describe('createGiftCheckoutSession', function () {
@@ -670,11 +788,7 @@ describe('StripeAPI', function () {
             };
 
             sinon.stub(mockLabs, 'isSet');
-
-            const mockStripeConstructor = sinon.stub().returns(mockStripe);
-
-            StripeAPI.__set__('Stripe', mockStripeConstructor);
-            StripeAPI.__set__('t', i18nT);
+            sinon.stub(stripe, 'Stripe').returns(mockStripe);
 
             api.configure({
                 checkoutSessionSuccessUrl: '/success',
@@ -713,6 +827,21 @@ describe('StripeAPI', function () {
             assert.equal(args.line_items[0].price_data.product_data.name, 'Gift subscription — Pro (1 year)');
         });
 
+        it('explicitly disables Managed Payments', async function () {
+            await api.createGiftCheckoutSession({
+                amount: 5000,
+                currency: 'usd',
+                tierName: 'Pro',
+                cadence: 'year',
+                duration: 1,
+                successUrl: '/gift-success',
+                cancelUrl: '/gift-cancel',
+                metadata: {}
+            });
+
+            assert.deepEqual(mockStripe.checkout.sessions.create.firstCall.firstArg.managed_payments, {enabled: false});
+        });
+
         it('uses 1 month label for monthly cadence', async function () {
             await api.createGiftCheckoutSession({
                 amount: 1000,
@@ -748,7 +877,7 @@ describe('StripeAPI', function () {
         });
 
         it('uses translated title and cadence labels', async function () {
-            StripeAPI.__set__('t', (key, options = {}) => {
+            sinon.stub(i18n, 't').callsFake((key, options = {}) => {
                 if (key === 'Gift subscription') {
                     return 'Abonnement offert';
                 }
@@ -899,7 +1028,7 @@ describe('StripeAPI', function () {
 
             const args = mockStripe.checkout.sessions.create.firstCall.firstArg;
 
-            assert.deepEqual(args.customer_update, {address: 'auto'});
+            assert.deepEqual(args.customer_update, {address: 'auto', name: 'auto'});
         });
 
         it('does not set customer_update without customer', async function () {
@@ -927,6 +1056,61 @@ describe('StripeAPI', function () {
             const args = mockStripe.checkout.sessions.create.firstCall.firstArg;
 
             assert.equal(args.customer_update, undefined);
+        });
+
+        it('adds tax_id_collection when automatic tax is enabled', async function () {
+            api.configure({
+                checkoutSessionSuccessUrl: '/success',
+                checkoutSessionCancelUrl: '/cancel',
+                checkoutSetupSessionSuccessUrl: '/setup-success',
+                checkoutSetupSessionCancelUrl: '/setup-cancel',
+                secretKey: '',
+                enableAutomaticTax: true
+            });
+
+            await api.createGiftCheckoutSession({
+                amount: 5000,
+                currency: 'usd',
+                tierName: 'Pro',
+                cadence: 'year',
+                duration: 1,
+                successUrl: '/gift-success',
+                cancelUrl: '/gift-cancel',
+                metadata: {},
+                customerEmail: mockCustomerEmail
+            });
+
+            const args = mockStripe.checkout.sessions.create.firstCall.firstArg;
+
+            assertExists(args.tax_id_collection);
+            assert.deepEqual(args.tax_id_collection, {enabled: true});
+        });
+
+        it('does not add tax_id_collection when automatic tax is disabled', async function () {
+            api.configure({
+                checkoutSessionSuccessUrl: '/success',
+                checkoutSessionCancelUrl: '/cancel',
+                checkoutSetupSessionSuccessUrl: '/setup-success',
+                checkoutSetupSessionCancelUrl: '/setup-cancel',
+                secretKey: '',
+                enableAutomaticTax: false
+            });
+
+            await api.createGiftCheckoutSession({
+                amount: 5000,
+                currency: 'usd',
+                tierName: 'Pro',
+                cadence: 'year',
+                duration: 1,
+                successUrl: '/gift-success',
+                cancelUrl: '/gift-cancel',
+                metadata: {},
+                customerEmail: mockCustomerEmail
+            });
+
+            const args = mockStripe.checkout.sessions.create.firstCall.firstArg;
+
+            assert.equal(args.tax_id_collection, undefined);
         });
     });
 });

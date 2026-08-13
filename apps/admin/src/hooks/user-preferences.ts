@@ -1,8 +1,8 @@
-import { useQuery, useMutation, type UseQueryResult, type UseMutationResult, type UseQueryOptions } from "@tanstack/react-query";
+import { useQuery, useMutation, keepPreviousData, type UseQueryResult, type UseMutationResult, type UseQueryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 import { useQueryClient } from "@tryghost/admin-x-framework";
-import { useCurrentUser } from "@tryghost/admin-x-framework/api/current-user";
-import { useEditUser, type User } from "@tryghost/admin-x-framework/api/users";
+import { currentUserQueryKey, useCurrentUser } from "@tryghost/admin-x-framework/api/current-user";
+import { useEditUser, type User, type UsersResponseType } from "@tryghost/admin-x-framework/api/users";
 import { isoDatetimeToDate } from "@/schemas/primitives";
 import { deepMerge, type DeepPartial } from "@/utils/deep-merge";
 
@@ -39,7 +39,11 @@ export const NavigationPreferencesSchema = z.looseObject({
 
 const PreferencesSchema = z.looseObject({
     whatsNew: WhatsNewPreferencesSchema.optional().catch(undefined),
-    nightShift: z.boolean().optional(),
+    // Optional (not defaulted) so an absent preference stays absent and isn't
+    // eagerly written back on unrelated preference saves. The display fallback to
+    // "light" lives at the read site (see useTheme). New users get "system" from
+    // the server default; legacy booleans are migrated to strings in the queryFn.
+    nightShift: z.enum(["light", "dark", "system"]).optional().catch("light"),
     onboarding: OnboardingPreferencesSchema.default(DEFAULT_ONBOARDING_PREFERENCES).catch(DEFAULT_ONBOARDING_PREFERENCES),
     navigation: NavigationPreferencesSchema.default(DEFAULT_NAVIGATION_PREFERENCES).catch(DEFAULT_NAVIGATION_PREFERENCES),
 });
@@ -51,8 +55,25 @@ export type NavigationPreferences = z.infer<typeof NavigationPreferencesSchema>;
 
 const userPreferencesQueryKey = (user: User | undefined) => ["userPreferences", user?.id, user?.accessibility] as const;
 
+function parsePreferences(user: User): Preferences {
+    const raw = user.accessibility || "{}";
+    const parsedRaw: unknown = JSON.parse(raw);
+    const parsed: Record<string, unknown> =
+        parsedRaw && typeof parsedRaw === "object" && !Array.isArray(parsedRaw)
+            ? parsedRaw as Record<string, unknown>
+            : {};
+
+    if (parsed.nightShift === true) {
+        parsed.nightShift = "dark";
+    } else if (parsed.nightShift === false) {
+        parsed.nightShift = "light";
+    }
+
+    return PreferencesSchema.parse(parsed);
+}
+
 export function useUserPreferences<TData = Preferences>(
-    options?: Omit<UseQueryOptions<Preferences, Error, TData>, 'queryKey' | 'queryFn' | 'staleTime' | 'cacheTime'>
+    options?: Omit<UseQueryOptions<Preferences, Error, TData>, 'queryKey' | 'queryFn' | 'staleTime' | 'gcTime'>
 ): UseQueryResult<TData> {
     const { data: user } = useCurrentUser();
 
@@ -64,20 +85,17 @@ export function useUserPreferences<TData = Preferences>(
                 throw new Error("User not loaded");
             }
 
-            const raw = user.accessibility || "{}";
-            const parsed = JSON.parse(raw) as unknown;
-
-            return PreferencesSchema.parse(parsed);
+            return parsePreferences(user);
         },
         enabled: !!user,
-        keepPreviousData: true,
+        placeholderData: keepPreviousData,
         staleTime: Infinity,
         // Query key includes user?.accessibility to automatically react to changes from ANY source
         // (our mutation, other code calling editUser, external updates, etc.). When accessibility
-        // changes, the query key changes, making the old cache entry inactive. cacheTime: 0 ensures
+        // changes, the query key changes, making the old cache entry inactive. gcTime: 0 ensures
         // orphaned entries are immediately garbage collected, preventing memory leaks while keeping
         // the current active entry cached indefinitely.
-        cacheTime: 0,
+        gcTime: 0,
     });
 }
 
@@ -87,19 +105,25 @@ export const useEditUserPreferences = (): UseMutationResult<void, Error, DeepPar
     const { mutateAsync: editUser } = useEditUser();
 
     return useMutation({
+        // Preference edits write the whole accessibility blob from a merge of
+        // the current state; the shared scope serializes concurrent edits so
+        // the later one merges on top of the earlier write instead of racing.
+        scope: { id: "user-preferences" },
         mutationFn: async (updatedPreferences: DeepPartial<Preferences>) => {
-            if (!user) {
+            // Read the user at run time (not from the render closure): a
+            // serialized mutation must merge on top of the previous write.
+            const latestUser = queryClient.getQueryData<UsersResponseType>(currentUserQueryKey)?.users[0] ?? user;
+
+            if (!latestUser) {
                 throw new Error("User is not loaded");
             }
 
-            const currentPreferences = queryClient.getQueryData<Preferences>(userPreferencesQueryKey(user)) ?? PreferencesSchema.parse({});
-
-            const newPreferences = deepMerge(currentPreferences, updatedPreferences);
+            const newPreferences = deepMerge(parsePreferences(latestUser), updatedPreferences);
 
             const encodedForStorage = PreferencesSchema.encode(newPreferences);
 
             await editUser({
-                ...user,
+                ...latestUser,
                 accessibility: JSON.stringify(encodedForStorage),
             });
         },

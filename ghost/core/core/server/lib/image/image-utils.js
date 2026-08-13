@@ -11,7 +11,7 @@ const externalRequest = require('../request-external');
 // and routes them through the same SSRF protections as other external requests.
 // The returned promise exposes the underlying stream via `.stream` so callers
 // can destroy it on early abort — otherwise a pooled keep-alive socket leaks.
-function probe(url, options = {}) {
+function probe(url, options = {}, {probeImageSize: probeImageSizeFn = probeImageSize} = {}) {
     const stream = externalRequest.stream(url, {
         headers: options.headers,
         timeout: {
@@ -19,15 +19,28 @@ function probe(url, options = {}) {
         },
         retry: {limit: 0}
     });
-    const promise = probeImageSize(stream);
+    const promise = probeImageSizeFn(stream);
     promise.stream = stream;
     return promise;
 }
 
+// For image formats that require a full fetch. This function ensures that
+// SSRF protections are in place by using the externalRequest `got` client.
+function fetchExternal(url, options = {}) {
+    return externalRequest.get(url, {
+        headers: options.headers,
+        timeout: {
+            request: options.response_timeout || 10000
+        },
+        responseType: 'buffer',
+        retry: {limit: 0}
+    });
+}
+
 class ImageUtils {
-    constructor({config, urlUtils, settingsCache, storageUtils, storage, validator, request, cacheStore}) {
+    constructor({config, urlUtils, settingsCache, storageUtils, imageStore, validator, request, cacheStore}) {
         this.blogIcon = new BlogIcon({config, urlUtils, settingsCache, storageUtils});
-        this.imageSize = new ImageSize({config, storage, storageUtils, validator, urlUtils, request, probe});
+        this.imageSize = new ImageSize({config, imageStore, storageUtils, validator, urlUtils, fetchExternal, probe});
         this.cachedImageSizeFromUrl = new CachedImageSizeFromUrl({
             getImageSizeFromUrl: this.imageSize.getImageSizeFromUrl.bind(this.imageSize),
             cache: cacheStore
@@ -37,3 +50,5 @@ class ImageUtils {
 }
 
 module.exports = ImageUtils;
+module.exports.probe = probe;
+module.exports.fetchExternal = fetchExternal;

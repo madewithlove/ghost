@@ -1,16 +1,12 @@
 const models = require('../../models');
-const config = require('../../../shared/config');
+const urlService = require('../../services/url');
+const {requiredUrlColumns} = require('./utils/serializers/input/utils/url');
 const getPostServiceInstance = require('../../services/posts/posts-service-instance');
 const postsService = getPostServiceInstance();
 
-const urlRelationsWhenLazyRouting = () => {
-    if (config.get('lazyRouting')) {
-        return {
-            withRelated: ['tags', 'authors']
-        };
-    }
-
-    return {};
+const urlRelationsForRouting = () => {
+    const withRelated = urlService.getRequiredRelations();
+    return withRelated.length ? {withRelated} : {};
 };
 
 /** @type {import('@tryghost/api-framework').Controller} */
@@ -26,8 +22,8 @@ const controller = {
                 filter: 'type:post',
                 limit: '10000',
                 order: 'updated_at DESC',
-                columns: ['id', 'slug', 'title', 'excerpt', 'url', 'updated_at', 'visibility'],
-                ...urlRelationsWhenLazyRouting()
+                columns: requiredUrlColumns('posts', ['id', 'slug', 'title', 'excerpt', 'url', 'updated_at', 'visibility']),
+                ...urlRelationsForRouting()
             };
 
             return postsService.browsePosts(options);
@@ -42,7 +38,7 @@ const controller = {
             const options = {
                 limit: '10000',
                 order: 'updated_at DESC',
-                columns: ['id', 'slug', 'name', 'url', 'profile_image']
+                columns: requiredUrlColumns('authors', ['id', 'slug', 'name', 'url', 'profile_image'])
             };
 
             return models.Author.findPage(options);
@@ -57,7 +53,7 @@ const controller = {
             const options = {
                 limit: '10000',
                 order: 'updated_at DESC',
-                columns: ['id', 'slug', 'name', 'url'],
+                columns: requiredUrlColumns('tags', ['id', 'slug', 'name', 'url']),
                 filter: 'visibility:public'
             };
 

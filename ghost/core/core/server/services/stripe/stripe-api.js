@@ -3,8 +3,8 @@ const {VersionMismatchError} = require('@tryghost/errors');
 // @ts-ignore
 const debug = require('@tryghost/debug')('stripe');
 const ghostConfig = require('../../../shared/config');
-const Stripe = require('stripe').Stripe;
-const {t} = require('../i18n');
+const stripe = require('stripe');
+const i18n = require('../i18n');
 
 /* Stripe has the following rate limits:
 *  - For most APIs, 100 read requests per second in live mode, 25 read requests per second in test mode
@@ -22,6 +22,12 @@ const LIVE_MODE_RATE_LIMIT = isTesting ? 10_000 : 100;
 const SEARCH_MODE_RATE_LIMIT = isTesting ? 10_000 : 100;
 
 const STRIPE_API_VERSION = '2020-08-27';
+
+// Stripe's Managed Payments does not support Connect, and some Stripe
+// accounts have it enabled by default for all Checkout Sessions.
+// On those accounts, session creation fails with "Managed Payments cannot be
+// used with Connect" unless it is explicitly disabled per session.
+const MANAGED_PAYMENTS_DISABLED = {enabled: false};
 
 /**
  * @typedef {import('stripe').Stripe.Customer} ICustomer
@@ -142,7 +148,7 @@ module.exports = class StripeAPI {
         if (stripeApiProtocol) {
             stripeConfig.protocol = stripeApiProtocol;
         }
-        this._stripe = new Stripe(config.secretKey, stripeConfig);
+        this._stripe = new stripe.Stripe(config.secretKey, stripeConfig);
         this._config = config;
         this._testMode = config.secretKey && config.secretKey.startsWith('sk_test_');
         if (this._testMode) {
@@ -512,6 +518,21 @@ module.exports = class StripeAPI {
     }
 
     /**
+     * Apply Automatic Tax related session options consistently.
+     * @param {object} stripeSessionOptions
+     * @param {{hasCustomer: boolean}} ctx
+     */
+    _applyAutomaticTaxSessionOptions(stripeSessionOptions, {hasCustomer}) {
+        if (!this._config.enableAutomaticTax) {
+            return;
+        }
+        stripeSessionOptions.tax_id_collection = {enabled: true};
+        if (hasCustomer) {
+            stripeSessionOptions.customer_update = {address: 'auto', name: 'auto'};
+        }
+    }
+
+    /**
      * Create a new Stripe Checkout Session for a new subscription.
      *
      * @param {string} priceId
@@ -569,6 +590,7 @@ module.exports = class StripeAPI {
 
         let stripeSessionOptions = {
             payment_method_types: this.PAYMENT_METHOD_TYPES,
+            managed_payments: MANAGED_PAYMENTS_DISABLED,
             success_url: options.successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSessionCancelUrl,
             // @ts-ignore - we need to update to latest stripe library to correctly use newer features
@@ -598,9 +620,7 @@ module.exports = class StripeAPI {
             stripeSessionOptions.customer_email = customerEmail;
         }
 
-        if (customerId && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
-        }
+        this._applyAutomaticTaxSessionOptions(stripeSessionOptions, {hasCustomer: Boolean(customerId)});
 
         // @ts-ignore
         const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
@@ -636,6 +656,7 @@ module.exports = class StripeAPI {
 
         const stripeSessionOptions = {
             mode: 'payment',
+            managed_payments: MANAGED_PAYMENTS_DISABLED,
             success_url: successUrl || this._config.checkoutSessionSuccessUrl,
             cancel_url: cancelUrl || this._config.checkoutSessionCancelUrl,
             automatic_tax: {
@@ -669,9 +690,7 @@ module.exports = class StripeAPI {
             ]
         };
 
-        if (customer && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
-        }
+        this._applyAutomaticTaxSessionOptions(stripeSessionOptions, {hasCustomer: Boolean(customer)});
 
         // @ts-ignore
         const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
@@ -699,11 +718,12 @@ module.exports = class StripeAPI {
         await this._rateLimitBucket.throttle();
 
         const cadenceLabel = cadence === 'year' ?
-            t('{count} year', {count: duration}) :
-            t('{count} month', {count: duration});
+            i18n.t('{count} year', {count: duration}) :
+            i18n.t('{count} month', {count: duration});
 
         const stripeSessionOptions = {
             mode: 'payment',
+            managed_payments: MANAGED_PAYMENTS_DISABLED,
             success_url: successUrl,
             cancel_url: cancelUrl,
             automatic_tax: {
@@ -721,16 +741,14 @@ module.exports = class StripeAPI {
                     currency,
                     unit_amount: amount,
                     product_data: {
-                        name: `${t('Gift subscription')} — ${tierName} (${cadenceLabel})`
+                        name: `${i18n.t('Gift subscription')} — ${tierName} (${cadenceLabel})`
                     }
                 },
                 quantity: 1
             }]
         };
 
-        if (customer && this._config.enableAutomaticTax) {
-            stripeSessionOptions.customer_update = {address: 'auto'};
-        }
+        this._applyAutomaticTaxSessionOptions(stripeSessionOptions, {hasCustomer: Boolean(customer)});
 
         // @ts-ignore
         const session = await this._stripe.checkout.sessions.create(stripeSessionOptions);
@@ -752,6 +770,7 @@ module.exports = class StripeAPI {
         await this._rateLimitBucket.throttle();
         const session = await this._stripe.checkout.sessions.create({
             mode: 'setup',
+            managed_payments: MANAGED_PAYMENTS_DISABLED,
             payment_method_types: this.PAYMENT_METHOD_TYPES,
             success_url: options.successUrl || this._config.checkoutSetupSessionSuccessUrl,
             cancel_url: options.cancelUrl || this._config.checkoutSetupSessionCancelUrl,

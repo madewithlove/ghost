@@ -2,7 +2,7 @@ import React from "react";
 import {Button, SidebarTrigger, useSidebar} from "@tryghost/shade/components";
 import {LucideIcon} from "@tryghost/shade/utils";
 import { useIsActiveLink } from "./use-is-active-link";
-import { useSidebarVisibility } from "@/ember-bridge/ember-bridge";
+import { useAdminSidebarVisibility } from "@/layout/sidebar-visibility";
 
 const ICON_STROKE_WIDTH = 1.5;
 
@@ -13,16 +13,19 @@ interface MobileNavBarButtonProps extends Omit<React.ComponentProps<typeof Butto
 
 function MobileNavBarButton({ to, activeOnSubpath = false, children, ...props }: MobileNavBarButtonProps) {
     const isActive = useIsActiveLink({ path: to, activeOnSubpath });
+    // Use a hash route (e.g. "#/posts") so navigation stays client-side; a bare
+    // relative href like "posts" triggers a full page load and reloads all of admin.
+    const href = `#/${to?.replace(/^\/?#\//, '')}`;
 
     return (
         <Button
-            asChild
-            className={`w-full max-w-16 min-w-9 rounded-full hover:bg-gray-200 ${isActive ? 'bg-gray-200' : 'bg-transparent'}`} {...props}
-            variant="ghost"
-            size="icon"
+            className={`w-full max-w-16 min-w-9 rounded-full hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'bg-transparent'}`}
+            asChild {...props}
             data-active={isActive}
+            size="icon"
+            variant="ghost"
         >
-            <a href={to}>
+            <a href={href}>
                 {children}
             </a>
         </Button>
@@ -31,7 +34,7 @@ function MobileNavBarButton({ to, activeOnSubpath = false, children, ...props }:
 
 export function MobileNavBar() {
     const { isMobile } = useSidebar();
-    const sidebarVisible = useSidebarVisibility();
+    const sidebarVisible = useAdminSidebarVisibility();
 
 
     if (!isMobile || !sidebarVisible) {
@@ -39,25 +42,25 @@ export function MobileNavBar() {
     }
 
     return (
-        <div className="safe-area-inset-bottom fixed right-0 bottom-0 left-0 z-50 h-[var(--mobile-navbar-height)] border-t border-sidebar-border bg-sidebar/80 backdrop-blur-md sidebar:hidden">
-            <div className="mx-auto grid h-full w-full max-w-[300px] grid-cols-4 items-center justify-items-center px-5">
+        <div className="safe-area-inset-bottom fixed inset-x-0 bottom-0 z-50 h-[var(--mobile-navbar-height)] border-t border-sidebar-border bg-sidebar/80 backdrop-blur-md sidebar:hidden">
+            <div className="mx-auto grid size-full max-w-[300px] grid-cols-4 items-center justify-items-center px-5">
                 <MobileNavBarButton
-                    activeOnSubpath
                     to="analytics"
+                    activeOnSubpath
                 >
                     <LucideIcon.TrendingUp strokeWidth={ICON_STROKE_WIDTH} />
                     <span className="sr-only">Analytics</span>
                 </MobileNavBarButton>
                 <MobileNavBarButton
-                    activeOnSubpath
                     to="posts"
+                    activeOnSubpath
                 >
                     <LucideIcon.PenLine strokeWidth={ICON_STROKE_WIDTH} />
                     <span className="sr-only">Posts</span>
                 </MobileNavBarButton>
                 <MobileNavBarButton
-                    activeOnSubpath
                     to="members"
+                    activeOnSubpath
                 >
                     <LucideIcon.Users strokeWidth={ICON_STROKE_WIDTH} />
                     <span className="sr-only">Members</span>

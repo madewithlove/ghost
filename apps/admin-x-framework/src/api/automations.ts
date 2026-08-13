@@ -20,6 +20,14 @@ export type AutomationWaitAction = {
     };
 }
 
+export type AutomationEmailStats = {
+    email_clicked_count: number;
+    email_sent_count: number;
+    email_opened_count: number;
+    opened_rate: number | null;
+    clicked_rate: number | null;
+}
+
 export type AutomationSendEmailAction = {
     id: string;
     type: 'send_email';
@@ -28,6 +36,7 @@ export type AutomationSendEmailAction = {
         email_lexical: string;
         email_design_setting_id: string;
     };
+    stats?: AutomationEmailStats;
 }
 
 export type AutomationAction = AutomationWaitAction | AutomationSendEmailAction;
@@ -60,6 +69,25 @@ export interface AutomationDetailResponseType {
     automations: AutomationDetail[];
 }
 
+export type AutomationEmailPreview = {
+    html: string;
+    plaintext: string;
+    subject: string;
+}
+
+export interface AutomationEmailPreviewResponseType {
+    automation_email_previews: AutomationEmailPreview[];
+}
+
+export type AutomationActionLink = {
+    url: string;
+    clicked_count: number;
+}
+
+export type AutomationActionLinksResponseType = {
+    automation_action_links: AutomationActionLink[];
+}
+
 const dataType = 'AutomationsResponseType';
 
 export const useBrowseAutomations = createQuery<AutomationsResponseType>({
@@ -72,13 +100,37 @@ export const useReadAutomation = createQueryWithId<AutomationDetailResponseType>
     path: id => `/automations/${id}/`
 });
 
+const useBrowseAutomationActionLinksQuery = createQueryWithId<AutomationActionLinksResponseType>({
+    dataType: 'AutomationActionLinksResponseType',
+    path: id => `/automations/${id}/links/`
+});
+
+export const useBrowseAutomationActionLinks = (
+    automationId: string,
+    actionId: string,
+    options: Parameters<typeof useBrowseAutomationActionLinksQuery>[1] = {}
+) => useBrowseAutomationActionLinksQuery(`${automationId}/actions/${actionId}`, options);
+
+const serializeEditableAction = (action: AutomationAction): AutomationAction => {
+    switch (action.type) {
+    case 'wait':
+        return action;
+    case 'send_email':
+        return {id: action.id, type: action.type, data: action.data};
+    default: {
+        const _exhaustive: never = action;
+        throw new Error(`Unknown automation action type: ${_exhaustive}`);
+    }
+    }
+};
+
 export const useEditAutomation = createMutation<AutomationDetailResponseType, EditAutomationPayload>({
     method: 'PUT',
     path: ({id}) => `/automations/${id}/`,
     body: ({status, actions, edges}) => ({
         automations: [{
             status,
-            actions,
+            actions: actions.map(serializeEditableAction),
             edges
         }]
     }),
@@ -87,7 +139,20 @@ export const useEditAutomation = createMutation<AutomationDetailResponseType, Ed
     }
 });
 
+export const usePreviewAutomationEmail = createMutation<AutomationEmailPreviewResponseType, {id: string; subject: string; lexical: string}>({
+    method: 'POST',
+    path: ({id}) => `/automations/${id}/email_preview`,
+    body: ({subject, lexical}) => ({subject, lexical})
+});
+
+export const useSendTestAutomationEmail = createMutation<unknown, {id: string; email: string; subject: string; lexical: string}>({
+    method: 'POST',
+    path: ({id}) => `/automations/${id}/email_test`,
+    body: ({email, subject, lexical}) => ({email, subject, lexical})
+});
+
 const generateActionId = (): string => ObjectId().toHexString();
+const DEFAULT_EMAIL_DESIGN_SETTING_SLUG = 'default-automated-email';
 
 const EMPTY_EMAIL_LEXICAL = JSON.stringify({
     root: {
@@ -112,8 +177,7 @@ const buildSendEmailAction = (): AutomationSendEmailAction => ({
     data: {
         email_subject: '',
         email_lexical: EMPTY_EMAIL_LEXICAL,
-        // TODO NY-1252: replace this placeholder when email design settings are available.
-        email_design_setting_id: 'placeholder'
+        email_design_setting_id: DEFAULT_EMAIL_DESIGN_SETTING_SLUG
     }
 });
 

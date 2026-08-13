@@ -5,19 +5,17 @@ const testUtils = require('../../utils');
 const configUtils = require('../../utils/config-utils');
 const urlUtilsHelper = require('../../utils/url-utils');
 const models = require('../../../core/server/models');
-const urlService = require('../../../core/server/services/url');
 
 describe('Tag Model', function () {
     const siteUrl = configUtils.config.get('url');
 
-    before(testUtils.teardownDb);
-    before(testUtils.stopGhost);
-    after(testUtils.teardownDb);
+    beforeAll(testUtils.teardownDb);
+    beforeAll(testUtils.stopGhost);
+    afterAll(testUtils.teardownDb);
 
-    before(testUtils.setup('users:roles', 'posts'));
+    beforeAll(testUtils.setup('users:roles', 'posts'));
 
     beforeEach(function () {
-        sinon.stub(urlService, 'getUrlByResourceId').returns('/test-url/');
     });
 
     afterEach(async function () {

@@ -65,11 +65,9 @@ module.exports = function MembersAPI({
         Settings,
         Comment,
         MemberFeedback,
-        Outbox,
         Automation,
         WelcomeEmailAutomationRun,
-        AutomatedEmailRecipient,
-        Gift
+        AutomatedEmailRecipient
     },
     tiersService,
     stripeAPIService,
@@ -82,9 +80,11 @@ module.exports = function MembersAPI({
     sentry,
     settingsHelpers,
     urlUtils,
+    urlService,
     commentsService,
     emailAddressService,
-    giftService
+    giftService,
+    customFieldValues
 }) {
     const tokenService = new TokenService({
         privateKey,
@@ -119,11 +119,11 @@ module.exports = function MembersAPI({
         OfferRedemption,
         StripeCustomer,
         StripeCustomerSubscription,
-        Outbox,
         offersAPI
     });
 
     const eventRepository = new EventRepository({
+        urlService,
         DonationPaymentEvent,
         EmailRecipient,
         MemberSubscribeEvent,
@@ -141,7 +141,7 @@ module.exports = function MembersAPI({
         memberAttributionService,
         MemberEmailChangeEvent,
         AutomatedEmailRecipient,
-        Gift
+        giftSubscriptions: giftService
     });
 
     const nextPaymentCalculator = new NextPaymentCalculator();
@@ -167,7 +167,8 @@ module.exports = function MembersAPI({
         settingsHelpers,
         nextPaymentCalculator,
         commentsService,
-        giftService
+        giftService,
+        customFieldValues
     });
 
     const geolocationService = new GeolocationService();
@@ -190,8 +191,7 @@ module.exports = function MembersAPI({
         Offer,
         offersAPI,
         stripeAPIService,
-        settingsCache,
-        giftService
+        settingsCache
     });
 
     const memberController = new MemberController({
@@ -281,7 +281,10 @@ module.exports = function MembersAPI({
             }
 
             if (giftToken) {
-                await giftService.service.redeem(giftToken, member.id);
+                await giftService.service.redeem({
+                    token: giftToken,
+                    memberId: member.id
+                });
             }
 
             await MemberLoginEvent.add({member_id: member.id});
@@ -314,7 +317,12 @@ module.exports = function MembersAPI({
                     {name, email, labels, newsletters, attribution, geolocation, status: 'gift'},
                     {transacting}
                 );
-                await giftService.service.redeem(giftToken, created.id, {transacting, newMember: true});
+                await giftService.service.redeem({
+                    token: giftToken,
+                    memberId: created.id,
+                    transacting,
+                    newMember: true
+                });
                 return created;
             });
         } else {

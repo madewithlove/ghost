@@ -1,10 +1,14 @@
 import type {AutomationStepToRun, AutomationsRepository} from './automations-repository';
+import {getMailgunMessageId} from './mailgun-message-id';
 import logging from '@tryghost/logging';
 import errors from '@tryghost/errors';
 import {MEMBER_WELCOME_EMAIL_ELIGIBLE_STATUSES, MEMBER_WELCOME_EMAIL_SLUGS} from '../member-welcome-emails/constants';
 import {MAX_ATTEMPTS, MAX_STEPS_PER_BATCH, RETRY_DELAY_MS} from './constants';
 // @ts-expect-error Models currently lack type definitions.
 import {Member} from '../../models';
+
+const settingsCache = require('../../../shared/settings-cache');
+const labs = require('../../../shared/labs');
 
 type MemberWelcomeEmailService = {
     init: () => unknown;
@@ -21,6 +25,10 @@ type MemberWelcomeEmailService = {
                 uuid: string;
             };
             memberStatus: 'free' | 'paid';
+            trackOpens: boolean;
+            trackClicks: boolean;
+            automationActionRevisionId: string;
+            automationRunStepId: string;
         }) => Promise<unknown>;
     };
 };
@@ -28,6 +36,10 @@ type MemberWelcomeEmailService = {
 type MemberModel = {
     get(key: 'name'): string | null;
     get(key: 'email' | 'status' | 'uuid'): string;
+    get(key: 'enable_updates_and_announcements'): boolean | null;
+    related(key: 'newsletters'): {
+        models: unknown[];
+    };
 };
 
 type PollOptions = {
@@ -35,15 +47,28 @@ type PollOptions = {
         'fetchAndLockSteps' |
         'finishStepAndEnqueueNext' |
         'markStepTerminal' |
+        'recordEmailSent' |
         'retryStep'
     >;
     enqueueAnotherPollAt: (date: Readonly<Date>) => unknown;
+    scheduleAutomationEmailAnalyticsJob: () => Promise<void>;
     memberWelcomeEmailService: MemberWelcomeEmailService;
 };
 
 const slugToMemberStatus = new Map<string, 'free' | 'paid'>(
     Object.entries(MEMBER_WELCOME_EMAIL_SLUGS).map(([status, slug]) => [slug as string, status as 'free' | 'paid'])
 );
+
+const hasUpdatesAndAnnouncementsEnabled = (member: MemberModel): boolean => {
+    const preference = member.get('enable_updates_and_announcements');
+
+    if (preference !== null) {
+        return preference;
+    }
+
+    const isSubscribedToAnyNewsletters = member.related('newsletters').models.length > 0;
+    return isSubscribedToAnyNewsletters;
+};
 
 const markMaxAttemptsExceeded = async (automationsApi: PollOptions['automationsApi'], step: AutomationStepToRun): Promise<void> => {
     await automationsApi.markStepTerminal(step, 'failed');
@@ -88,8 +113,9 @@ const handleStepExecutionFailure = async ({
 const processStep = async ({
     automationsApi,
     memberWelcomeEmailService,
+    scheduleAutomationEmailAnalyticsJob,
     step
-}: Readonly<Pick<PollOptions, 'automationsApi' | 'memberWelcomeEmailService'> & {
+}: Readonly<Pick<PollOptions, 'automationsApi' | 'memberWelcomeEmailService' | 'scheduleAutomationEmailAnalyticsJob'> & {
     step: AutomationStepToRun;
 }>): Promise<Date | null> => {
     if (step.automation_status !== 'active') {
@@ -121,7 +147,7 @@ const processStep = async ({
         return null;
     }
 
-    const member = await Member.findOne({id: step.member_id}) as MemberModel | null;
+    const member = await Member.findOne({id: step.member_id}, {withRelated: ['newsletters']}) as MemberModel | null;
 
     if (!member) {
         // It's possible that the member was deleted between the time the step was fetched and now, though it's
@@ -147,13 +173,23 @@ const processStep = async ({
 
     try {
         switch (step.type) {
-        case 'wait': {
-            nextReadyAt = await automationsApi.finishStepAndEnqueueNext(step);
+        case 'wait':
             break;
-        }
         case 'send_email': {
+            if (!hasUpdatesAndAnnouncementsEnabled(member)) {
+                logging.info({
+                    system: {
+                        event: 'automations.poll.skipped_unsubscribed_member',
+                        member_id: step.member_id,
+                        step_id: step.id
+                    }
+                }, `[AUTOMATIONS] Member ${step.member_id} for step ${step.id} has unsubscribed from emails. Fast-finishing this step`);
+                break;
+            }
             memberWelcomeEmailService.init();
-            await memberWelcomeEmailService.api.sendAutomationEmail({
+            const trackClicks = labs.isSet('automationAnalytics') && Boolean(settingsCache.get('email_track_clicks'));
+            const trackOpens = Boolean(settingsCache.get('email_track_opens'));
+            const sendResult = await memberWelcomeEmailService.api.sendAutomationEmail({
                 email: {
                     designSettingId: step.email_design_setting_id,
                     lexical: step.email_lexical,
@@ -164,9 +200,51 @@ const processStep = async ({
                     name: member.get('name'),
                     uuid: member.get('uuid')
                 },
-                memberStatus
+                memberStatus,
+                trackOpens,
+                trackClicks,
+                automationActionRevisionId: step.automation_action_revision_id,
+                automationRunStepId: step.id
             });
-            nextReadyAt = await automationsApi.finishStepAndEnqueueNext(step);
+            const mailgunMessageId = getMailgunMessageId(sendResult);
+            // Only Mailgun sends can produce open events for automation emails
+            const trackOpensForRecipient = trackOpens && Boolean(mailgunMessageId);
+            try {
+                await automationsApi.recordEmailSent({
+                    automationActionRevisionId: step.automation_action_revision_id,
+                    automationRunStepId: step.id,
+                    ...(mailgunMessageId ? {mailgunMessageId} : {}),
+                    memberEmail: member.get('email'),
+                    memberId: step.member_id,
+                    memberName: member.get('name'),
+                    memberUuid: member.get('uuid'),
+                    trackClicks,
+                    trackOpens: trackOpensForRecipient
+                });
+            } catch (err) {
+                logging.error({
+                    err,
+                    system: {
+                        event: 'automations.poll.recipient_persistence_failed',
+                        member_id: step.member_id,
+                        step_id: step.id
+                    }
+                }, `[AUTOMATIONS] Failed to record automated email recipient for step ${step.id}`);
+            }
+            if (mailgunMessageId) {
+                try {
+                    await scheduleAutomationEmailAnalyticsJob();
+                } catch (err) {
+                    logging.error({
+                        err,
+                        system: {
+                            event: 'automations.poll.analytics_scheduling_failed',
+                            member_id: step.member_id,
+                            step_id: step.id
+                        }
+                    }, `[AUTOMATIONS] Failed to schedule email analytics job for step ${step.id}`);
+                }
+            }
             break;
         }
         default: {
@@ -176,6 +254,8 @@ const processStep = async ({
             });
         }
         }
+
+        nextReadyAt = await automationsApi.finishStepAndEnqueueNext(step);
     } catch (err) {
         return await handleStepExecutionFailure({
             automationsApi,
@@ -200,20 +280,9 @@ const dateMin = (a: Date | null, b: Date | null): Date | null => {
 export const poll = async ({
     automationsApi,
     enqueueAnotherPollAt,
+    scheduleAutomationEmailAnalyticsJob,
     memberWelcomeEmailService
 }: Readonly<PollOptions>): Promise<void> => {
-    // TODO(NY-1311) Once we're using real tables, we should remove this conditional.
-    // Note that unlike triggering, where we only continue if the "automations"
-    // flag is enabled, for polling we want to run in all cases. If an
-    // automation was enqueued while the flag was on, we want it to run even if
-    // the feature was turned off.
-    if (
-        process.env.NODE_ENV !== 'development'
-        && !process.env.NODE_ENV?.startsWith('test')
-    ) {
-        return;
-    }
-
     const {steps, nextStepReadyAt} = await automationsApi.fetchAndLockSteps(MAX_STEPS_PER_BATCH);
 
     let nextPollAt = nextStepReadyAt;
@@ -234,6 +303,7 @@ export const poll = async ({
             const stepNextPollAt = await processStep({
                 automationsApi,
                 memberWelcomeEmailService,
+                scheduleAutomationEmailAnalyticsJob,
                 step
             });
             nextPollAt = dateMin(nextPollAt, stepNextPollAt);
@@ -241,9 +311,10 @@ export const poll = async ({
             logging.error({
                 err,
                 system: {
-                    event: 'automations.poll.step_failed'
+                    event: 'automations.poll.step_failed',
+                    step_id: step.id
                 }
-            }, '[AUTOMATIONS] Failed to process automation step');
+            }, `[AUTOMATIONS] Failed to process automation step ${step.id}`);
             return;
         }
     }));

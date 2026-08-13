@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBrowseConfig } from "@tryghost/admin-x-framework/api/config";
 
@@ -12,12 +12,17 @@ export type StateBridgeEventMap = {
     subscriptionChange: SubscriptionState;
     sidebarVisibilityChange: SidebarVisibilityChangeEvent;
     routeChange: RouteChangeEvent;
+    openGiftLinkModal: OpenGiftLinkModalEvent;
+    featureFlagsChange: undefined;
 }
 
 export interface StateBridge {
     onUpdate: (dataType: string, response: unknown) => void;
     onInvalidate: (dataType: string) => void;
     onDelete: (dataType: string, id: string) => void;
+    isFeatureEnabled?: (name: string) => boolean | undefined;
+    preloadAdminThemeStylesheet?: () => Promise<void>;
+    applyAdminThemePreference?: (mode: 'light' | 'dark' | 'system') => Promise<void> | void;
     on<K extends keyof StateBridgeEventMap>(event: K, callback: (event: StateBridgeEventMap[K]) => void): void;
     off<K extends keyof StateBridgeEventMap>(event: K, callback: (event: StateBridgeEventMap[K]) => void): void;
     sidebarVisible: boolean;
@@ -57,6 +62,11 @@ export interface SidebarVisibilityChangeEvent {
 export interface RouteChangeEvent {
     routeName: string;
     queryParams: Record<string, unknown>;
+}
+
+export interface OpenGiftLinkModalEvent {
+    id: string;
+    resource: 'posts' | 'pages';
 }
 
 export type EmberRouting = Pick<StateBridge, 'getRouteUrl' | 'isRouteActive'>;
@@ -113,7 +123,8 @@ function waitForStateBridge(onReady: (stateBridge: StateBridge) => void): () => 
 
 function onEmberStateBridgeEvent<K extends keyof StateBridgeEventMap>(
     event: K,
-    handler: (event: StateBridgeEventMap[K]) => void
+    handler: (event: StateBridgeEventMap[K]) => void,
+    onReady?: () => void
 ): () => void {
     let unsubscribe: (() => void) | null = null;
     let isMounted = true;
@@ -124,6 +135,7 @@ function onEmberStateBridgeEvent<K extends keyof StateBridgeEventMap>(
         }
         stateBridge.on(event, handler);
         unsubscribe = () => stateBridge.off(event, handler);
+        onReady?.();
     });
 
     return () => {
@@ -206,6 +218,38 @@ export function useSubscriptionStatus() {
     }, []);
 
     return subscriptionStatus;
+}
+
+/**
+ * Reads Ember's authoritative Labs state and updates when it changes.
+ * `null` means Ember is present but its settings are still loading;
+ * `undefined` means there is no Ember feature reader (standalone React).
+ */
+export function useEmberFeatureFlag(flag: string): boolean | null | undefined {
+    const subscribe = useCallback((callback: () => void) => {
+        return onEmberStateBridgeEvent('featureFlagsChange', callback, callback);
+    }, []);
+    const getSnapshot = useCallback(() => {
+        const stateBridge = window.EmberBridge?.state;
+        if (!stateBridge?.isFeatureEnabled) {
+            return undefined;
+        }
+        return stateBridge.isFeatureEnabled(flag) ?? null;
+    }, [flag]);
+
+    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * Subscribes to Ember's request to open the (React-owned) gift-link modal.
+ *
+ * Ember surfaces — the posts/pages list context menu — fire `openGiftLinkModal`
+ * over the bridge instead of rendering their own modal. The consumer owns the
+ * modal's open/close state and just reacts to each request. Returns an
+ * unsubscribe function.
+ */
+export function subscribeOpenGiftLinkModal(handler: (event: OpenGiftLinkModalEvent) => void): () => void {
+    return onEmberStateBridgeEvent('openGiftLinkModal', handler);
 }
 
 // External store for sidebar visibility state

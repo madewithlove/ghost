@@ -1,50 +1,54 @@
 const logging = require('@tryghost/logging');
 const metrics = require('@tryghost/metrics');
 const config = require('../../../shared/config');
+const domainEvents = require('@tryghost/domain-events');
+/** @import {PrometheusClient} from '@tryghost/prometheus-metrics' */
+/** @import {BatchEventProcessor} from './batch-event-processor' */
+/** @import {JobNames, CursorSeed, EmailAnalyticsFetchResult} from './email-analytics-service' */
 
 class EmailAnalyticsServiceWrapper {
+    /** @type {string} */ #logName;
+    #fetching = false;
     #restoredSchedule = false;
 
-    init() {
+    get #logPrefix() {
+        return `[EmailAnalytics:${this.#logName}]`;
+    }
+
+    /**
+     * @param {object} options
+     * @param {string} options.logName
+     */
+    constructor({
+        logName,
+    }) {
+        this.#logName = logName;
+    }
+
+    /**
+     * @param {object} options
+     * @param {Parameters<typeof domainEvents.subscribe>[0]} options.event
+     * @param {string[]} options.mailgunTags
+     * @param {JobNames} options.jobNames
+     * @param {CursorSeed} options.cursorSeed
+     * @param {() => BatchEventProcessor} options.createEventProcessor
+     * @param {PrometheusClient} [options.prometheusClient]
+     */
+    init({
+        event,
+        mailgunTags,
+        jobNames,
+        cursorSeed,
+        createEventProcessor,
+        prometheusClient
+    }) {
         if (this.service) {
             return;
         }
 
         const EmailAnalyticsService = require('./email-analytics-service');
-        const EmailEventStorage = require('../email-service/email-event-storage');
-        const EmailEventProcessor = require('../email-service/email-event-processor');
-        const {EmailRecipientFailure, EmailSpamComplaintEvent, Email} = require('../../models');
-        const StartEmailAnalyticsJobEvent = require('./events/start-email-analytics-job-event');
-        const domainEvents = require('@tryghost/domain-events');
         const settings = require('../../../shared/settings-cache');
-        const labs = require('../../../shared/labs');
-        const db = require('../../data/db');
-        const queries = require('./lib/queries');
-        const membersService = require('../members');
-        const membersRepository = membersService.api.members;
-        const emailSuppressionList = require('../email-suppression-list');
-        const prometheusClient = require('../../../shared/prometheus-client');
-
-        this.eventStorage = new EmailEventStorage({
-            db,
-            membersRepository,
-            models: {
-                Email,
-                EmailRecipientFailure,
-                EmailSpamComplaintEvent
-            },
-            emailSuppressionList,
-            prometheusClient
-        });
-
-        // Since this is running in a worker thread, we cant dispatch directly
-        // So we post the events as a message to the job manager
-        const eventProcessor = new EmailEventProcessor({
-            domainEvents,
-            db,
-            eventStorage: this.eventStorage,
-            prometheusClient
-        });
+        const {queries} = require('./lib/queries');
 
         // Use unified email adapter (handles both sending and analytics)
         const emailAdapterConfig = config.get('adapters:email');
@@ -53,7 +57,7 @@ class EmailAnalyticsServiceWrapper {
         logging.info(`[EmailAnalytics] Initializing ${emailProvider} analytics via unified adapter`);
 
         const emailAdapter = require('../../adapters/email');
-        const providers = [];
+        let emailAnalyticsProvider;
 
         try {
             // Get unified email adapter instance (same one used for email sending)
@@ -82,7 +86,7 @@ class EmailAnalyticsServiceWrapper {
             }
 
             // Create a new instance for analytics (the email service has its own instance)
-            providers.push(new AdapterClass(adapterConfig));
+            emailAnalyticsProvider = new AdapterClass(adapterConfig);
         } catch (error) {
             logging.error(`[EmailAnalytics] Failed to load ${emailProvider} adapter: ${error.message}`);
             logging.error(error.stack);
@@ -90,22 +94,24 @@ class EmailAnalyticsServiceWrapper {
         }
 
         this.service = new EmailAnalyticsService({
-            config,
-            settings,
-            eventProcessor,
-            providers,
+            // The adapter replaces the hardcoded MailgunProvider. As of v6.57.1 the
+            // service takes a single provider and builds its own event processor
+            // via createEventProcessor, so we hand it the one adapter instance.
+            provider: emailAnalyticsProvider,
             queries,
-            domainEvents,
-            prometheusClient
+            prometheusClient,
+            jobNames,
+            cursorSeed,
+            createEventProcessor
         });
 
         // Log the processing mode on initialization
         const batchProcessingEnabled = config.get('emailAnalytics:batchProcessing');
-        logging.info(`[EmailAnalytics] Initialized with ${batchProcessingEnabled ? 'BATCHED' : 'SEQUENTIAL'} processing mode`);
+        logging.info(`${this.#logPrefix} Initialized with ${batchProcessingEnabled ? 'BATCHED' : 'SEQUENTIAL'} processing mode`);
 
         // We currently cannot trigger a non-offloaded job from the job manager
         // So the email analytics jobs simply emits an event.
-        domainEvents.subscribe(StartEmailAnalyticsJobEvent, async () => {
+        domainEvents.subscribe(event, async () => {
             await this.startFetch();
         });
     }
@@ -113,7 +119,7 @@ class EmailAnalyticsServiceWrapper {
     /**
      * Log comprehensive job completion with timing metrics
      * @param {string} jobType - Type of job (e.g., 'latest-opened', 'latest', 'missing', 'scheduled')
-     * @param {object} fetchResult - The fetch result from EmailAnalyticsService
+     * @param {EmailAnalyticsFetchResult} fetchResult - The fetch result from EmailAnalyticsService
      * @param {number} totalDurationMs - Total duration in milliseconds
      */
     _logJobCompletion(jobType, fetchResult, totalDurationMs) {
@@ -130,7 +136,7 @@ class EmailAnalyticsServiceWrapper {
         const batchMode = config.get('emailAnalytics:batchProcessing') ? 'BATCHED' : 'SEQUENTIAL';
 
         const logMessage = [
-            `[EmailAnalytics] Job complete: ${jobType}`,
+            `${this.#logPrefix} Job complete: ${jobType}`,
             `${eventCount} events in ${(totalDurationMs / 1000).toFixed(1)}s (${throughput.toFixed(2)} events/s)`,
             `Mode: ${batchMode}`,
             `Timings: API ${(apiPollingTimeMs / 1000).toFixed(1)}s (${apiPercent}%) / Processing ${(processingTimeMs / 1000).toFixed(1)}s (${processingPercent}%) / Aggregation ${(aggregationTimeMs / 1000).toFixed(1)}s (${aggregationPercent}%) [Email ${(emailAggregationTimeMs / 1000).toFixed(1)}s / Member ${(memberAggregationTimeMs / 1000).toFixed(1)}s]`,
@@ -144,7 +150,10 @@ class EmailAnalyticsServiceWrapper {
             const openThroughputEnabled = config.get('emailAnalytics:metrics:openThroughput:enabled');
             const openThroughputThreshold = config.get('emailAnalytics:metrics:openThroughput:threshold') || 0;
             if (openThroughputEnabled && eventCount >= openThroughputThreshold) {
-                metrics.metric('email-analytics-open-throughput', {
+                const metricName = this.#logName === 'newsletters'
+                    ? 'email-analytics-open-throughput'
+                    : `email-${this.#logName}-analytics-open-throughput`;
+                metrics.metric(metricName, {
                     value: throughput,
                     events: eventCount,
                     duration: totalDurationMs
@@ -162,12 +171,12 @@ class EmailAnalyticsServiceWrapper {
         //  - Ghost or Mailgun outages
         //  - Lack of actual email activity
         if (lagThreshold && lagMinutes > lagThreshold) {
-            logging.warn(`[EmailAnalytics] Opened events processing is ${lagMinutes.toFixed(1)} minutes behind (threshold: ${lagThreshold})`);
+            logging.warn(`${this.#logPrefix} Opened events processing is ${lagMinutes.toFixed(1)} minutes behind (threshold: ${lagThreshold})`);
         }
 
-        const fetchStartDate = new Date();
+        const fetchStartedAt = Date.now();
         const fetchResult = await this.service.fetchLatestOpenedEvents({maxEvents});
-        const totalDuration = Date.now() - fetchStartDate.getTime();
+        const totalDuration = Date.now() - fetchStartedAt;
 
         this._logJobCompletion('latest-opened', fetchResult, totalDuration);
 
@@ -175,9 +184,9 @@ class EmailAnalyticsServiceWrapper {
     }
 
     async fetchLatestNonOpenedEvents({maxEvents} = {maxEvents: Infinity}) {
-        const fetchStartDate = new Date();
+        const fetchStartedAt = Date.now();
         const fetchResult = await this.service.fetchLatestNonOpenedEvents({maxEvents});
-        const totalDuration = Date.now() - fetchStartDate.getTime();
+        const totalDuration = Date.now() - fetchStartedAt;
 
         this._logJobCompletion('latest', fetchResult, totalDuration);
 
@@ -185,23 +194,28 @@ class EmailAnalyticsServiceWrapper {
     }
 
     async fetchMissing({maxEvents} = {maxEvents: Infinity}) {
-        const fetchStartDate = new Date();
+        const fetchStartedAt = Date.now();
         const fetchResult = await this.service.fetchMissing({maxEvents});
-        const totalDuration = Date.now() - fetchStartDate.getTime();
+        const totalDuration = Date.now() - fetchStartedAt;
 
         this._logJobCompletion('missing', fetchResult, totalDuration);
 
         return fetchResult.eventCount;
     }
 
+    /**
+     * @param {object} options
+     * @param {number} options.maxEvents
+     * @returns {Promise<number>} The number of scheduled events fetched
+     */
     async fetchScheduled({maxEvents}) {
         if (maxEvents < 300) {
             return 0;
         }
 
-        const fetchStartDate = new Date();
+        const fetchStartedAt = Date.now();
         const fetchResult = await this.service.fetchScheduled({maxEvents});
-        const totalDuration = Date.now() - fetchStartDate.getTime();
+        const totalDuration = Date.now() - fetchStartedAt;
 
         this._logJobCompletion('scheduled', fetchResult, totalDuration);
 
@@ -214,11 +228,11 @@ class EmailAnalyticsServiceWrapper {
             await this.service.restoreScheduled();
         }
 
-        if (this.fetching) {
-            logging.info('Email analytics fetch already running, skipping');
+        if (this.#fetching) {
+            logging.info(`Email analytics fetch for ${this.#logName} already running, skipping`);
             return;
         }
-        this.fetching = true;
+        this.#fetching = true;
 
         // NOTE: Data shows we can process ~2500 events per minute on Pro for a large-ish db (150k members).
         //       This can vary locally, but we should be conservative with the number of events we fetch.
@@ -250,22 +264,26 @@ class EmailAnalyticsServiceWrapper {
 
             // Log summary if no events were found across all jobs
             if (c1 + c2 + c3 + c4 === 0) {
-                logging.info('[EmailAnalytics] Job complete - No events');
+                logging.info(`${this.#logPrefix} Job complete - No events`);
             }
 
-            this.fetching = false;
+            this.#fetching = false;
         } catch (e) {
-            logging.error(e, 'Error while fetching email analytics');
+            logging.error(e, `Error while fetching email analytics for ${this.#logName}`);
 
             // Log again only the error, otherwise we lose the stack trace
             logging.error(e);
         }
-        this.fetching = false;
+        this.#fetching = false;
     }
 
+    /**
+     * @param {string} reason
+     * @returns {void}
+     */
     _restartFetch(reason) {
-        this.fetching = false;
-        logging.info(`[EmailAnalytics] Restarting fetch due to ${reason}`);
+        this.#fetching = false;
+        logging.info(`${this.#logPrefix} Restarting fetch due to ${reason}`);
         this.startFetch();
     }
 }

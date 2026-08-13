@@ -97,6 +97,9 @@ typings/
 /ghost/core/content/media/**/*
 /ghost/core/content/files/**/*
 /ghost/core/content/public/*
+# Boot-generated public assets (admin-auth, .well-known) when tests use the
+# fixtures dir as the content path — same as content/public above (PLA-152).
+/ghost/core/test/utils/fixtures/public/
 /ghost/core/content/adapters/storage/**/*
 /ghost/core/content/adapters/scheduling/**/*
 /ghost/core/content/themes/casper
@@ -139,7 +142,10 @@ Caddyfile
 /test-results
 
 # Admin
-/ghost/admin/dist
+/apps/ember-admin/dist
+
+# Admin Toolbar
+/apps/admin-toolbar/umd
 
 # Comments-UI
 /apps/comments-ui/umd
@@ -168,15 +174,12 @@ Caddyfile
 # Build files
 /apps/*/build
 /ghost/*/build
+/koenig/*/build
+/packages/**/build
 # Typescript build artifacts
 tsconfig.tsbuildinfo
 
 # Admin X
-/apps/admin-x-settings/dist
-/apps/admin-x-settings/dist-ssr
-/apps/admin-x-settings/test-results/
-/apps/admin-x-settings/playwright-report/
-/apps/admin-x-settings/playwright/.cache/
 
 # Tinybird
 .tinyb
@@ -213,3 +216,5 @@ yalc.lock
 .env.tinybird
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
+
+.nx/migrate-runs

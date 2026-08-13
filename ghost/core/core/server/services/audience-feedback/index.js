@@ -1,4 +1,4 @@
-const urlUtils = require('../../../shared/url-utils');
+const urlUtils = require('../../../shared/url-utils').default;
 const urlService = require('../../services/url');
 
 const AudienceFeedbackService = require('./audience-feedback-service');
@@ -30,7 +30,10 @@ class AudienceFeedbackServiceWrapper {
                 baseURL: new URL(urlUtils.urlFor('home', true))
             }
         });
-        this.controller = new AudienceFeedbackController({repository: this.repository});
+        this.controller = new AudienceFeedbackController({
+            repository: this.repository,
+            audienceFeedbackService: this.service
+        });
     }
 }
 

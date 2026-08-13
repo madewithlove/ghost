@@ -213,8 +213,6 @@ async function processRun({
             return;
         }
 
-        // TODO(NY-1193): Bail if member is unsubscribed
-
         const eligibleStatuses = MEMBER_WELCOME_EMAIL_ELIGIBLE_STATUSES[memberStatus];
         if (!eligibleStatuses.includes(member.get('status'))) {
             await markExited(run.id, 'member changed status');
@@ -236,10 +234,10 @@ async function processRun({
                 automated_email_id: run.automated_email_id,
                 member_uuid: member.get('uuid'),
                 member_email: member.get('email'),
-                member_name: member.get('name')
+                member_name: member.get('name'),
+                track_opens: false,
+                track_clicks: false
             }, {transacting});
-
-            // TODO(NY-1195): Advance to next email when there are additional ones
 
             await markExited(run.id, 'finished', transacting);
         });

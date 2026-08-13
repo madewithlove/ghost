@@ -1,13 +1,17 @@
 const debug = require('@tryghost/debug')('services:routing:controllers:unsubscribe');
 const url = require('url');
-const members = require('../../../../server/services/members');
-const urlUtils = require('../../../../shared/url-utils');
+const proxy = require('../../proxy');
+const {settingsHelpers} = proxy;
+const urlUtils = require('../../../../shared/url-utils').default;
 const logging = require('@tryghost/logging');
-const settingsHelpers = require('../../../../server/services/settings-helpers');
 const crypto = require('crypto');
 
 module.exports = async function unsubscribeController(req, res) {
     debug('unsubscribeController');
+
+    // Resolved per-request so requiring this controller never triggers the
+    // proxy's lazy members getter ahead of boot
+    const {members} = proxy;
 
     const {query} = url.parse(req.url, true);
 
@@ -17,7 +21,7 @@ module.exports = async function unsubscribeController(req, res) {
     }
 
     if (req.method === 'POST') {
-        logging.info('[List-Unsubscribe] Received POST unsubscribe for ' + query.uuid + ', newsletter: ' + (query.newsletter ?? 'null') + ', comments: ' + (query.comments ?? 'false'));
+        logging.info('[List-Unsubscribe] Received POST unsubscribe for ' + query.uuid + ', newsletter: ' + (query.newsletter ?? 'null') + ', comments: ' + (query.comments ?? 'false') + ', updates & announcements: ' + (query.updatesandannouncements ?? 'false'));
 
         // Do an actual unsubscribe
         try {
@@ -38,6 +42,13 @@ module.exports = async function unsubscribeController(req, res) {
                     // Unsubscribe from comments
                     await members.api.members.update({
                         enable_comment_notifications: false
+                    }, {
+                        id: member.id
+                    });
+                } else if (query.updatesandannouncements) {
+                    // Unsubscribe from updates & announcements (automation emails)
+                    await members.api.members.update({
+                        enable_updates_and_announcements: false
                     }, {
                         id: member.id
                     });
@@ -72,6 +83,9 @@ module.exports = async function unsubscribeController(req, res) {
     }
     if (query.comments) {
         redirectUrl.searchParams.append('comments', query.comments);
+    }
+    if (query.updatesandannouncements) {
+        redirectUrl.searchParams.append('updatesandannouncements', query.updatesandannouncements);
     }
     if (query.key) {
         redirectUrl.searchParams.append('key', query.key);

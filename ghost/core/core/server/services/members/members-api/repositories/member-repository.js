@@ -12,6 +12,7 @@ const hasActiveOffer = require('../utils/has-active-offer');
 const StartAutomationsPollEvent = require('../../../automations/events/start-automations-poll-event');
 const {MEMBER_WELCOME_EMAIL_SLUGS} = require('../../../member-welcome-emails/constants');
 const db = require('../../../../data/db');
+const labs = require('../../../../../shared/labs');
 /** @import {Knex} from 'knex' */
 /** @import * as automationsApi from '../../../automations/automations-api' */
 
@@ -23,7 +24,7 @@ const messages = {
     memberNotFound: 'Could not find Member {id}',
     subscriptionNotFound: 'Could not find Subscription {id}',
     productNotFound: 'Could not find Product {id}',
-    bulkActionRequiresFilter: 'Cannot perform {action} without a filter or all=true',
+    bulkActionRequiresFilter: 'Cannot perform {action} without a filter, search, or all=true',
     tierArchived: 'Cannot use archived Tiers',
     invalidEmail: 'Invalid Email',
     offerNotFound: 'Could not find Offer {id}',
@@ -63,7 +64,6 @@ module.exports = class MemberRepository {
      * @param {any} deps.StripeCustomer
      * @param {any} deps.StripeCustomerSubscription
      * @param {any} deps.OfferRedemption
-     * @param {any} deps.Outbox
      * @param {import('../../../stripe/stripe-api')} deps.stripeAPIService
      * @param {any} deps.productRepository
      * @param {any} deps.offersAPI
@@ -85,7 +85,6 @@ module.exports = class MemberRepository {
         StripeCustomer,
         StripeCustomerSubscription,
         OfferRedemption,
-        Outbox,
         stripeAPIService,
         productRepository,
         offersAPI,
@@ -104,7 +103,6 @@ module.exports = class MemberRepository {
         this._MemberStatusEvent = MemberStatusEvent;
         this._MemberProductEvent = MemberProductEvent;
         this._OfferRedemption = OfferRedemption;
-        this._Outbox = Outbox;
         this._StripeCustomer = StripeCustomer;
         this._StripeCustomerSubscription = StripeCustomerSubscription;
         this._stripeAPIService = stripeAPIService;
@@ -221,6 +219,10 @@ module.exports = class MemberRepository {
      */
     async #triggerMemberSignupLegacyAutomation(memberId, memberStatus, options) {
         if (!this._Automation || !this._WelcomeEmailAutomationRun) {
+            return;
+        }
+
+        if (labs.isSet('automations')) {
             return;
         }
 
@@ -618,6 +620,7 @@ module.exports = class MemberRepository {
             'products',
             'newsletters',
             'enable_comment_notifications',
+            'enable_updates_and_announcements',
             'last_seen_at',
             'last_commented_at',
             'expertise',
@@ -955,7 +958,7 @@ module.exports = class MemberRepository {
     }
 
     async bulkEdit(data, options) {
-        const {activeStripeCustomersCount, all, filter, search} = options;
+        const {all, filter, search} = options;
 
         if (!['unsubscribe', 'addLabel', 'removeLabel'].includes(data.action)) {
             throw new errors.IncorrectUsageError({
@@ -963,7 +966,7 @@ module.exports = class MemberRepository {
             });
         }
 
-        if (!filter && !search && !activeStripeCustomersCount && (!all || all !== true)) {
+        if (!filter && !search && (!all || all !== true)) {
             throw new errors.IncorrectUsageError({
                 message: tpl(messages.bulkActionRequiresFilter, {action: 'bulk edit'})
             });
@@ -973,7 +976,7 @@ module.exports = class MemberRepository {
 
         if (all !== true) {
             // Include mongoTransformer to apply subscribed:{true|false} => newsletter relation mapping
-            Object.assign(filterOptions, _.pick(options, ['filter', 'search', 'mongoTransformer', 'activeStripeCustomersCount']));
+            Object.assign(filterOptions, _.pick(options, ['filter', 'search', 'mongoTransformer']));
         }
         const memberRows = await this._Member.getFilteredCollectionQuery(filterOptions)
             .select('members.id')
@@ -1253,6 +1256,11 @@ module.exports = class MemberRepository {
         };
         let eventData = {};
 
+        // A cancellation (or reactivation) changes no `members` column, so the member
+        // model event would be suppressed by `wasChanged()`. Remember the pre-update
+        // subscription so the event can be marked and carry its prior state.
+        let subscriptionBeforeCancelFlagChange = null;
+
         const stripeCustomerSubscriptionModelShouldBeDeleted = stripeSubscriptionData.metadata && !!stripeSubscriptionData.metadata.ghost_migrated_to && stripeSubscriptionData.status === 'canceled';
         if (stripeCustomerSubscriptionModelShouldBeDeleted) {
             logging.warn(`Subscription ${subscriptionData.subscription_id} is marked for deletion, skipping linking.`);
@@ -1295,6 +1303,10 @@ module.exports = class MemberRepository {
                     subscriptionId: updatedStripeCustomerSubscriptionModel.id
                 }, redemptionTimestamp);
                 this.dispatchEvent(offerRedemptionEvent, options);
+            }
+
+            if (stripeCustomerSubscriptionModel.get('cancel_at_period_end') !== updatedStripeCustomerSubscriptionModel.get('cancel_at_period_end')) {
+                subscriptionBeforeCancelFlagChange = stripeCustomerSubscriptionModel;
             }
 
             if (stripeCustomerSubscriptionModel.get('mrr') !== updatedStripeCustomerSubscriptionModel.get('mrr') || stripeCustomerSubscriptionModel.get('plan_id') !== updatedStripeCustomerSubscriptionModel.get('plan_id') || stripeCustomerSubscriptionModel.get('status') !== updatedStripeCustomerSubscriptionModel.get('status') || stripeCustomerSubscriptionModel.get('cancel_at_period_end') !== updatedStripeCustomerSubscriptionModel.get('cancel_at_period_end')) {
@@ -1545,6 +1557,48 @@ module.exports = class MemberRepository {
             logging.error(`Failed to update member - ${data.id} - with related products`);
             logging.error(e);
             updatedMember = await this._Member.edit({status: status}, {...options, id: data.id});
+        }
+
+        // Cancelling (or reactivating) touches no `members` column, so mark the
+        // subscription relation as the change and carry its prior state. This lets the
+        // webhook payload express before/after — see `services/webhooks/serialize.js`.
+        //
+        // No explicit `emitChange` is needed, and adding one would emit twice: inside a
+        // transaction `emitChange` queues onto the `committed` handler and defers its
+        // `wasChanged()` check to commit time (see `models/base/plugins/events.js`), so
+        // the event already queued by `_Member.edit` above is still pending and setting
+        // `_changed` here is what lets it through. The e2e test asserting exactly one
+        // `member.edited` per cancellation guards this.
+        if (subscriptionBeforeCancelFlagChange && updatedMember) {
+            // Price/tier relations are needed for the serialized subscription shape
+            // to match the Admin API member resource (price, tier, plan)
+            await updatedMember.load([
+                'stripeSubscriptions',
+                'stripeSubscriptions.stripePrice',
+                'stripeSubscriptions.stripePrice.stripeProduct',
+                'stripeSubscriptions.stripePrice.stripeProduct.product'
+            ], options);
+            await subscriptionBeforeCancelFlagChange.load([
+                'stripePrice',
+                'stripePrice.stripeProduct',
+                'stripePrice.stripeProduct.product'
+            ], options);
+            updatedMember._changed = {
+                ...updatedMember._changed,
+                stripeSubscriptions: {
+                    cancel_at_period_end: subscriptionBeforeCancelFlagChange.get('cancel_at_period_end')
+                }
+            };
+            // `previous` must be the full collection — a member can have multiple
+            // subscriptions — with only the changed one swapped for its prior state
+            updatedMember._previousRelations = {
+                ...updatedMember._previousRelations,
+                stripeSubscriptions: {
+                    models: updatedMember.related('stripeSubscriptions').models.map((subscription) => {
+                        return subscription.id === subscriptionBeforeCancelFlagChange.id ? subscriptionBeforeCancelFlagChange : subscription;
+                    })
+                }
+            };
         }
 
         const newMemberProductIds = memberProducts.map(product => product.id);

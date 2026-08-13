@@ -1,12 +1,20 @@
 const mime = require('mime-types');
-const FileType = require('file-type');
 const request = require('../../lib/request-external');
-const urlUtils = require('../../../shared/url-utils');
+const urlUtils = require('../../../shared/url-utils').default;
 const errors = require('@tryghost/errors');
 const logging = require('@tryghost/logging');
 const string = require('@tryghost/string');
 const path = require('path');
-const convert = require('heic-convert');
+
+let fileTypeFromBuffer;
+
+async function getFileTypeFromBuffer(buffer) {
+    if (!fileTypeFromBuffer) {
+        ({fileTypeFromBuffer} = await import('file-type'));
+    }
+
+    return fileTypeFromBuffer(buffer);
+}
 
 class ExternalMediaInliner {
     /** @type {object} */
@@ -28,7 +36,7 @@ class ExternalMediaInliner {
      * @param {Object} deps.PostMetaModel - PostMeta model
      * @param {Object} deps.TagModel - Tag model
      * @param {Object} deps.UserModel - User model
-     * @param {(extension) => import('ghost-storage-base')} deps.getMediaStorage - getMediaStorage
+     * @param {(extension) => import('ghost-storage-base').StorageBase} deps.getMediaStorage - getMediaStorage
      */
     constructor(deps) {
         this.#PostModel = deps.PostModel;
@@ -83,7 +91,7 @@ class ExternalMediaInliner {
         // Attempt to get the file extension from the file itself
         // If that fails, or if `.ext` is undefined, get the extension from the file path in the catch
         try {
-            const fileInfo = await FileType.fromBuffer(body);
+            const fileInfo = await getFileTypeFromBuffer(body);
             extension = fileInfo.ext;
         } catch {
             const headers = response.headers;
@@ -93,20 +101,25 @@ class ExternalMediaInliner {
         }
 
         // If the file is heic or heif, attempt to convert it to jpeg
-        try {
-            if (extension === 'heic' || extension === 'heif') {
+        if (extension === 'heic' || extension === 'heif') {
+            // Lazy: pulls in libheif-js, a WASM codec costing ~50ms to load at boot.
+            // Deliberately outside the try — a missing codec is not a conversion error,
+            // and swallowing it would store an unconvertible .heic in its place.
+            const convert = require('heic-convert');
+
+            try {
                 body = await convert({
                     buffer: body,
                     format: 'JPEG'
                 });
 
                 extension = 'jpg';
+            } catch (error) {
+                logging.error(`Error converting file to JPEG: ${requestURL}`);
+                logging.error(new errors.DataImportError({
+                    err: error
+                }));
             }
-        } catch (error) {
-            logging.error(`Error converting file to JPEG: ${requestURL}`);
-            logging.error(new errors.DataImportError({
-                err: error
-            }));
         }
 
         const removeExtRegExp = new RegExp(`.${extension}`, '');

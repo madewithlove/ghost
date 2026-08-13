@@ -10,24 +10,47 @@ const urlUtils = require('../../utils/url-utils');
 const routeSettingsService = require('../../../core/server/services/route-settings');
 const themeEngine = require('../../../core/frontend/services/theme-engine');
 
+// `loadRouteSettings` returns the `RouteSettings` domain model: routes and
+// collections are arrays whose items carry their own `path`, and taxonomies stay
+// a `{tag, author}` map. These fixtures are authored as the legacy path-keyed
+// maps, so reshape them in one place rather than rewriting every stub. The shape
+// mirrors what parseRouteSettings() really emits — routes always carry `type`
+// (defaulting to `template`) and a `templates` array, and a string value is the
+// shorthand form.
+function asRouteSettings({routes = {}, collections = {}, taxonomies = {}}) {
+    const toRoute = ([path, value]) => {
+        if (typeof value === 'string') {
+            return {path, type: 'template', templates: [value]};
+        }
+        return {type: 'template', templates: [], ...value, path};
+    };
+    const toCollection = ([path, value]) => ({templates: [], ...value, path});
+
+    return {
+        routes: Object.entries(routes).map(toRoute),
+        collections: Object.entries(collections).map(toCollection),
+        taxonomies
+    };
+}
+
 describe('Frontend behavior tests', function () {
     let app;
 
-    before(localUtils.urlService.resetGenerators);
-    before(testUtils.teardownDb);
-    before(testUtils.setup('users:roles', 'posts'));
+    beforeAll(localUtils.urlService.resetRouters);
+    beforeAll(testUtils.teardownDb);
+    beforeAll(testUtils.setup('users:roles', 'posts'));
 
     let postSpy;
 
     describe('default routes.yaml', function () {
-        before(async function () {
+        beforeAll(async function () {
             localUtils.defaultMocks(sinon);
             localUtils.overrideGhostConfig(configUtils);
 
             app = await localUtils.initGhost();
         });
 
-        before(function () {
+        beforeAll(function () {
             configUtils.set('url', 'http://example.com');
             urlUtils.stubUrlUtilsFromConfig();
         });
@@ -43,7 +66,7 @@ describe('Frontend behavior tests', function () {
             sinon.restore();
         });
 
-        after(async function () {
+        afterAll(async function () {
             await configUtils.restore();
             await urlUtils.restore();
             sinon.restore();
@@ -251,12 +274,12 @@ describe('Frontend behavior tests', function () {
     });
 
     describe('https site: http requests redirect to https', function () {
-        before(function () {
+        beforeAll(function () {
             configUtils.set('url', 'https://example.com');
             urlUtils.stubUrlUtilsFromConfig();
         });
 
-        after(async function () {
+        afterAll(async function () {
             await urlUtils.restore();
             await configUtils.restore();
         });
@@ -328,31 +351,31 @@ describe('Frontend behavior tests', function () {
 
     describe('extended routes.yaml: collections', function () {
         describe('2 collections', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {
                         '/': {templates: ['home']}
                     },
 
                     collections: {
                         '/podcast/': {
-                            permalink: '/podcast/:slug/',
+                            permalink: '/podcast/{slug}/',
                             filter: 'featured:true'
                         },
 
                         '/something/': {
-                            permalink: '/something/:slug/',
+                            permalink: '/something/{slug}/',
                             filter: 'featured:false'
                         }
                     },
 
                     taxonomies: {
-                        tag: '/categories/:slug/',
-                        author: '/authors/:slug/'
+                        tag: '/categories/{slug}/',
+                        author: '/authors/{slug}/'
                     }
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon, {theme: 'test-theme'});
 
                 app = await localUtils.initGhost();
@@ -367,7 +390,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -446,8 +469,8 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('no collections', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {
                         '/something/': {
                             templates: ['something']
@@ -457,7 +480,7 @@ describe('Frontend behavior tests', function () {
                     taxonomies: {}
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon, {theme: 'test-theme'});
 
                 app = await localUtils.initGhost();
@@ -472,7 +495,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -492,8 +515,8 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('static permalink route', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {},
 
                     collections: {
@@ -503,14 +526,14 @@ describe('Frontend behavior tests', function () {
                         },
 
                         '/': {
-                            permalink: '/:slug/'
+                            permalink: '/{slug}/'
                         }
                     },
 
                     taxonomies: {}
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon);
 
                 app = await localUtils.initGhost();
@@ -525,7 +548,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -589,20 +612,20 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('primary author permalink', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {},
 
                     collections: {
                         '/something/': {
-                            permalink: '/:primary_author/:slug/'
+                            permalink: '/{primary_author}/{slug}/'
                         }
                     },
 
                     taxonomies: {}
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon);
 
                 app = await localUtils.initGhost();
@@ -617,7 +640,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -665,20 +688,20 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('primary tag permalink', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {},
 
                     collections: {
                         '/something/': {
-                            permalink: '/something/:primary_tag/:slug/'
+                            permalink: '/something/{primary_tag}/{slug}/'
                         }
                     },
 
                     taxonomies: {}
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon);
 
                 app = await localUtils.initGhost();
@@ -693,7 +716,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -755,24 +778,12 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('collection/routes with data key', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {
                         '/my-page/': {
                             data: {
-                                query: {
-                                    page: {
-                                        controller: 'pagesPublic',
-                                        resource: 'pages',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'static-page-test'
-                                        }
-                                    }
-                                },
-                                router: {
-                                    pages: [{redirect: true, slug: 'static-page-test'}]
-                                }
+                                page: {type: 'read', resource: 'pages', slug: 'static-page-test'}
                             },
                             templates: ['page']
                         }
@@ -780,52 +791,28 @@ describe('Frontend behavior tests', function () {
 
                     collections: {
                         '/food/': {
-                            permalink: '/food/:slug/',
+                            permalink: '/food/{slug}/',
                             filter: 'tag:bacon+tag:-chorizo',
                             data: {
-                                query: {
-                                    tag: {
-                                        controller: 'tagsPublic',
-                                        resource: 'tags',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'bacon'
-                                        }
-                                    }
-                                },
-                                router: {
-                                    tags: [{redirect: true, slug: 'bacon'}]
-                                }
+                                tag: {type: 'read', resource: 'tags', slug: 'bacon'}
                             }
                         },
                         '/sport/': {
-                            permalink: '/sport/:slug/',
+                            permalink: '/sport/{slug}/',
                             filter: 'tag:chorizo+tag:-bacon',
                             data: {
-                                query: {
-                                    apollo: {
-                                        controller: 'tagsPublic',
-                                        resource: 'tags',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'chorizo'
-                                        }
-                                    }
-                                },
-                                router: {
-                                    tags: [{redirect: false, slug: 'chorizo'}]
-                                }
+                                apollo: {type: 'read', resource: 'tags', slug: 'chorizo', redirect: false}
                             }
                         }
                     },
 
                     taxonomies: {
-                        tag: '/categories/:slug/',
-                        author: '/authors/:slug/'
+                        tag: '/categories/{slug}/',
+                        author: '/authors/{slug}/'
                     }
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon);
 
                 app = await localUtils.initGhost();
@@ -840,7 +827,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -915,22 +902,22 @@ describe('Frontend behavior tests', function () {
 
     describe('extended routes.yaml: templates', function () {
         describe('default template, no template', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {},
 
                     collections: {
                         '/': {
-                            permalink: '/:slug/',
+                            permalink: '/{slug}/',
                             templates: ['default']
                         },
                         '/magic/': {
-                            permalink: '/magic/:slug/'
+                            permalink: '/magic/{slug}/'
                         }
                     }
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon);
 
                 app = await localUtils.initGhost();
@@ -976,19 +963,19 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('two templates', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {},
 
                     collections: {
                         '/': {
-                            permalink: '/:slug/',
+                            permalink: '/{slug}/',
                             templates: ['something', 'default']
                         }
                     }
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon);
 
                 app = await localUtils.initGhost();
@@ -1003,7 +990,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -1023,23 +1010,23 @@ describe('Frontend behavior tests', function () {
         });
 
         describe('home.hbs priority', function () {
-            before(async function () {
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+            beforeAll(async function () {
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {},
 
                     collections: {
                         '/': {
-                            permalink: '/:slug/',
+                            permalink: '/{slug}/',
                             templates: ['something', 'default']
                         },
                         '/magic/': {
-                            permalink: '/magic/:slug/',
+                            permalink: '/magic/{slug}/',
                             templates: ['something', 'default']
                         }
                     }
                 }));
 
-                localUtils.urlService.resetGenerators();
+                localUtils.urlService.resetRouters();
                 localUtils.defaultMocks(sinon, {theme: 'test-theme'});
 
                 app = await localUtils.initGhost();
@@ -1087,132 +1074,69 @@ describe('Frontend behavior tests', function () {
 
     describe('extended routes.yaml: routes', function () {
         describe('channels', function () {
-            before(localUtils.urlService.resetGenerators);
-            before(testUtils.teardownDb);
-            before(testUtils.setup('users:roles', 'posts'));
+            beforeAll(localUtils.urlService.resetRouters);
+            beforeAll(testUtils.teardownDb);
+            beforeAll(testUtils.setup('users:roles', 'posts'));
 
-            before(async function () {
+            beforeAll(async function () {
                 localUtils.defaultMocks(sinon, {theme: 'test-theme-channels'});
 
-                sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+                sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                     routes: {
                         '/channel1/': {
-                            controller: 'channel',
+                            type: 'channel',
                             filter: 'tag:kitchen-sink',
                             data: {
-                                query: {
-                                    tag: {
-                                        controller: 'tagsPublic',
-                                        resource: 'tags',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'kitchen-sink'
-                                        }
-                                    }
-                                },
-                                router: {
-                                    tags: [{redirect: true, slug: 'kitchen-sink'}]
-                                }
+                                tag: {type: 'read', resource: 'tags', slug: 'kitchen-sink'}
                             }
                         },
 
                         '/channel2/': {
-                            controller: 'channel',
+                            type: 'channel',
                             filter: 'tag:bacon',
                             data: {
-                                query: {
-                                    tag: {
-                                        controller: 'tagsPublic',
-                                        resource: 'tags',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'bacon'
-                                        }
-                                    }
-                                },
-                                router: {
-                                    tags: [{redirect: true, slug: 'bacon'}]
-                                }
+                                tag: {type: 'read', resource: 'tags', slug: 'bacon'}
                             },
                             templates: ['default']
                         },
 
                         '/channel3/': {
-                            controller: 'channel',
+                            type: 'channel',
                             filter: 'author:joe-bloggs',
                             data: {
-                                query: {
-                                    joe: {
-                                        controller: 'authorsPublic',
-                                        resource: 'authors',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'joe-bloggs',
-                                            redirect: false
-                                        }
-                                    }
-                                },
-                                router: {
-                                    authors: [{redirect: false, slug: 'joe-bloggs'}]
-                                }
+                                joe: {type: 'read', resource: 'authors', slug: 'joe-bloggs', redirect: false}
                             }
                         },
 
                         '/channel4/': {
-                            controller: 'channel',
+                            type: 'channel',
                             filter: 'author:joe-bloggs'
                         },
 
                         '/channel5/': {
-                            controller: 'channel',
+                            type: 'channel',
                             data: {
-                                query: {
-                                    tag: {
-                                        controller: 'authorsPublic',
-                                        resource: 'authors',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'joe-bloggs',
-                                            redirect: false
-                                        }
-                                    }
-                                },
-                                router: {
-                                    authors: [{redirect: false, slug: 'joe-bloggs'}]
-                                }
+                                tag: {type: 'read', resource: 'authors', slug: 'joe-bloggs', redirect: false}
                             }
                         },
 
                         '/channel6/': {
-                            controller: 'channel',
+                            type: 'channel',
                             data: {
-                                query: {
-                                    post: {
-                                        controller: 'postsPublic',
-                                        resource: 'posts',
-                                        type: 'read',
-                                        options: {
-                                            slug: 'html-ipsum',
-                                            redirect: true
-                                        }
-                                    }
-                                },
-                                router: {
-                                    posts: [{redirect: true, slug: 'html-ipsum'}]
-                                }
+                                post: {type: 'read', resource: 'posts', slug: 'html-ipsum'}
                             }
                         }
                     },
 
                     collections: {
                         '/': {
-                            permalink: '/:slug/'
+                            permalink: '/{slug}/'
                         }
                     },
 
                     taxonomies: {
-                        tag: '/tag/:slug/',
-                        author: '/author/:slug/'
+                        tag: '/tag/{slug}/',
+                        author: '/author/{slug}/'
                     }
                 }));
 
@@ -1229,7 +1153,7 @@ describe('Frontend behavior tests', function () {
                 await urlUtils.restore();
             });
 
-            after(function () {
+            afterAll(function () {
                 sinon.restore();
             });
 
@@ -1410,42 +1334,42 @@ describe('Frontend behavior tests', function () {
     });
 
     describe('extended routes.yaml (5): rss override', function () {
-        before(async function () {
-            sinon.stub(routeSettingsService, 'loadRouteSettings').get(() => () => ({
+        beforeAll(async function () {
+            sinon.stub(routeSettingsService.service, 'loadRouteSettings').resolves(asRouteSettings({
                 routes: {
                     '/podcast/rss/': {
                         templates: ['podcast/rss'],
-                        content_type: 'application/rss+xml'
+                        contentType: 'application/rss+xml'
                     },
                     '/cooking/': {
-                        controller: 'channel',
+                        type: 'channel',
                         rss: false
                     },
                     '/flat/': {
-                        controller: 'channel'
+                        type: 'channel'
                     }
                 },
 
                 collections: {
                     '/podcast/': {
-                        permalink: '/:slug/',
+                        permalink: '/{slug}/',
                         filter: 'featured:true',
                         templates: ['home'],
                         rss: false
                     },
                     '/music/': {
-                        permalink: '/:slug/',
+                        permalink: '/{slug}/',
                         rss: false
                     },
                     '/': {
-                        permalink: '/:slug/'
+                        permalink: '/{slug}/'
                     }
                 },
 
                 taxonomies: {}
             }));
 
-            localUtils.urlService.resetGenerators();
+            localUtils.urlService.resetRouters();
             localUtils.defaultMocks(sinon, {theme: 'test-theme'});
 
             app = await localUtils.initGhost();
@@ -1460,7 +1384,7 @@ describe('Frontend behavior tests', function () {
             await urlUtils.restore();
         });
 
-        after(function () {
+        afterAll(function () {
             sinon.restore();
         });
 

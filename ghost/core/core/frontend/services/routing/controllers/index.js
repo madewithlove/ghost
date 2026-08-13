@@ -1,6 +1,6 @@
 module.exports = {
     get entry() {
-        return require('./entry');
+        return require('./entry').entryController;
     },
 
     get collection() {
@@ -8,7 +8,7 @@ module.exports = {
     },
 
     get rss() {
-        return require('./rss');
+        return require('./rss').rssController;
     },
 
     get previews() {

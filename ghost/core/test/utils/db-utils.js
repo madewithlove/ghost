@@ -16,10 +16,10 @@ const config = require('../../core/shared/config');
 const db = require('../../core/server/data/db');
 const schema = require('../../core/server/data/schema').tables;
 const schemaTables = Object.keys(schema);
-const {sequence} = require('@tryghost/promise');
 
 // Other Test Utilities
 const urlServiceUtils = require('./url-service-utils');
+const dbTemplate = require('./db-template');
 
 let dbInitialized = false;
 let mysqlSnapshotDatabase = null;
@@ -56,6 +56,19 @@ module.exports.reset = async ({truncate} = {truncate: false}) => {
 
         if (dbInitialized) {
             await fs.copyFile(filenameOrig, filename);
+        } else if (dbTemplate.hasTemplate()) {
+            // First provision in this fork: build the schema + fixtures from the
+            // run's shared (migrated + seeded) template — ATTACH the template file
+            // and bulk-copy it onto db.knex's own connection — instead of a full
+            // per-file migrate+seed. Then snapshot to `-orig` so later
+            // in-fork resets take the fast file-copy path above. The fork file is
+            // already fresh (deleted at boot, see vitest-setup-db.ts), and the
+            // restore writes db.knex's inode, so we must NOT fs.remove() it here —
+            // that would strand db.knex on a stale empty handle.
+            await dbTemplate.restoreFromTemplate();
+
+            await fs.copyFile(filename, filenameOrig);
+            dbInitialized = true;
         } else {
             await fs.remove(filename);
             await fs.remove(`${filename}-journal`);
@@ -149,8 +162,17 @@ const isMySQLSnapshotCurrent = () => {
 
 const resetMySQLFromSnapshot = async () => {
     if (!isMySQLSnapshotCurrent()) {
-        await truncateAll();
-        await knexMigrator.init({only: 3});
+        if (dbTemplate.hasTemplate()) {
+            // First provision in this fork: load the schema + fixtures from the
+            // run's shared (migrated + seeded) template — a same-server bulk
+            // table copy rather than a full migrate+seed — then build the
+            // per-process snapshot tables so later in-fork resets take the fast
+            // restoreMySQLSnapshot path.
+            await dbTemplate.restoreFromTemplate();
+        } else {
+            await truncateAll();
+            await knexMigrator.init({only: 3});
+        }
         await createMySQLSnapshot();
         return;
     }
@@ -165,20 +187,19 @@ const createMySQLSnapshot = async () => {
 
     const tables = getResetTables();
 
-    await sequence(tables.map(table => async () => {
+    for (const table of tables) {
         const snapshotTable = getMySQLSnapshotTableName(table);
 
         await db.knex.schema.dropTableIfExists(snapshotTable);
         await db.knex.raw('CREATE TABLE ?? LIKE ??', [snapshotTable, table]);
         await db.knex.raw('INSERT INTO ?? SELECT * FROM ??', [snapshotTable, table]);
-    }));
+    }
 
     mysqlSnapshotDatabase = getMySQLDatabaseName();
 };
 
 const restoreMySQLSnapshot = async () => {
     debug('Database snapshot restore');
-    urlServiceUtils.reset();
 
     const tables = getResetTables();
 
@@ -186,12 +207,12 @@ const restoreMySQLSnapshot = async () => {
         try {
             await db.knex.raw('SET FOREIGN_KEY_CHECKS=0;').transacting(trx);
 
-            await sequence(tables.map(table => async () => {
+            for (const table of tables) {
                 const snapshotTable = getMySQLSnapshotTableName(table);
 
                 await db.knex.raw('DELETE FROM ??', [table]).transacting(trx);
                 await db.knex.raw('INSERT INTO ?? SELECT * FROM ??', [table, snapshotTable]).transacting(trx);
-            }));
+            }
         } finally {
             await db.knex.raw('SET FOREIGN_KEY_CHECKS=1;').transacting(trx);
             debug('Database snapshot restore end');
@@ -207,9 +228,9 @@ const dropMySQLSnapshots = async () => {
     mysqlSnapshotDatabase = null;
 
     try {
-        await sequence(getResetTables().map(table => () => {
-            return db.knex.schema.dropTableIfExists(getMySQLSnapshotTableName(table));
-        }));
+        for (const table of getResetTables()) {
+            await db.knex.schema.dropTableIfExists(getMySQLSnapshotTableName(table));
+        }
     } catch (err) {
         // CASE: table does not exist || DB does not exist
         if (err.errno === 1146 || err.errno === 1049) {
@@ -227,7 +248,6 @@ const dropMySQLSnapshots = async () => {
  */
 const truncateAll = async () => {
     debug('Database teardown');
-    urlServiceUtils.reset();
 
     const tables = getResetTables();
 
@@ -238,9 +258,9 @@ const truncateAll = async () => {
                 await db.knex.raw('PRAGMA foreign_keys = OFF;');
             }
 
-            await sequence(tables.map(table => () => {
-                return db.knex.raw('DELETE FROM ' + table + ';');
-            }));
+            for (const table of tables) {
+                await db.knex.raw('DELETE FROM ' + table + ';');
+            }
 
             if (foreignKeysEnabled.foreign_keys) {
                 await db.knex.raw('PRAGMA foreign_keys = ON;');
@@ -262,7 +282,9 @@ const truncateAll = async () => {
     await db.knex.transaction(async (trx) => {
         try {
             await db.knex.raw('SET FOREIGN_KEY_CHECKS=0;').transacting(trx);
-            await sequence(tables.map(table => () => db.knex.raw('DELETE FROM ' + table + ';').transacting(trx)));
+            for (const table of tables) {
+                await db.knex.raw('DELETE FROM ' + table + ';').transacting(trx);
+            }
             await db.knex.raw('SET FOREIGN_KEY_CHECKS=1;').transacting(trx);
         } catch (err) {
             // CASE: table does not exist || DB does not exist
@@ -284,8 +306,6 @@ const truncateAll = async () => {
  */
 module.exports.initData = async () => {
     await knexMigrator.init();
-    await urlServiceUtils.reset();
-    await urlServiceUtils.init();
     await urlServiceUtils.isFinished();
 };
 

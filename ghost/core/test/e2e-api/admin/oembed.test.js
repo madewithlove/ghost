@@ -8,7 +8,7 @@ const config = require('../../../core/shared/config/index');
 const localUtils = require('./utils');
 const {mockManager} = require('../../utils/e2e-framework');
 const oembed = require('../../../../core/core/server/services/oembed');
-const urlUtils = require('../../../core/shared/url-utils');
+const urlUtils = require('../../../core/shared/url-utils').default;
 
 // for sinon stubs
 const dnsPromises = require('dns').promises;
@@ -16,7 +16,7 @@ const dnsPromises = require('dns').promises;
 describe('Oembed API', function () {
     let request;
 
-    before(async function () {
+    beforeAll(async function () {
         await localUtils.startGhost();
         request = supertest.agent(config.get('url'));
         await localUtils.doAuth(request);
@@ -284,12 +284,12 @@ describe('Oembed API', function () {
     });
 
     it('should fetch and store thumbnails', async function () {
-        // Mock the page to contain a readable icon URL
+        // Mock the page to contain a scrapeable thumbnail (og:image)
         const pageMock = nock('http://example.com')
             .get('/page-with-thumbnail')
             .reply(
                 200,
-                '<html><head><title>TESTING</title><link rel="thumbnail" href="http://example.com/thumbnail.svg"></head><body></body></html>',
+                '<html><head><title>TESTING</title><meta property="og:image" content="http://example.com/thumbnail.png"></head><body></body></html>',
                 {'content-type': 'text/html'}
             );
 

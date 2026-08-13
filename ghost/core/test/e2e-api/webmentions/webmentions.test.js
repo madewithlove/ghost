@@ -7,7 +7,7 @@ const {
 } = require('../../utils/e2e-framework');
 const models = require('../../../core/server/models');
 const assert = require('node:assert/strict');
-const urlUtils = require('../../../core/shared/url-utils');
+const urlUtils = require('../../../core/shared/url-utils').default;
 const nock = require('nock');
 const jobsService = require('../../../core/server/services/mentions-jobs');
 const DomainEvents = require('@tryghost/domain-events');
@@ -17,10 +17,21 @@ async function allSettled() {
     await DomainEvents.allSettled();
 }
 
+async function receiveWebmention(agent, body) {
+    const processWebmentionJob = jobsService.awaitCompletion('processWebmention');
+
+    await agent.post('/receive')
+        .body(body)
+        .expectStatus(202);
+
+    await processWebmentionJob;
+    await DomainEvents.allSettled();
+}
+
 describe('Webmentions (receiving)', function () {
     let agent;
 
-    before(async function () {
+    beforeAll(async function () {
         agent = await agentProvider.getWebmentionsAPIAgent();
         await fixtureManager.init('posts');
     });
@@ -162,14 +173,10 @@ describe('Webmentions (receiving)', function () {
             .reply(200, html, {'Content-Type': 'text/html'});
 
         testCreatingTheMention: {
-            await agent.post('/receive')
-                .body({
-                    source: sourceUrl.href,
-                    target: targetUrl.href
-                })
-                .expectStatus(202);
-
-            await allSettled();
+            await receiveWebmention(agent, {
+                source: sourceUrl.href,
+                target: targetUrl.href
+            });
 
             const mention = await models.Mention.findOne({source: 'http://testpage.com/update-mention-test-2/'});
             assert(mention);
@@ -190,14 +197,10 @@ describe('Webmentions (receiving)', function () {
             .reply(404);
 
         testUpdatingTheMention: {
-            await agent.post('/receive')
-                .body({
-                    source: sourceUrl.href,
-                    target: targetUrl.href
-                })
-                .expectStatus(202);
-
-            await allSettled();
+            await receiveWebmention(agent, {
+                source: sourceUrl.href,
+                target: targetUrl.href
+            });
 
             const mention = await models.Mention.findOne({source: 'http://testpage.com/update-mention-test-2/'});
             assert(mention);

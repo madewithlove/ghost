@@ -28,6 +28,7 @@
         "^default"
       ],
       "outputs": [
+        "{projectRoot}/build",
         "{projectRoot}/dist",
         "{projectRoot}/es",
         "{projectRoot}/types",
@@ -45,6 +46,19 @@
       "cache": true,
       "dependsOn": [
         "build"
+      ]
+    },
+    "test:ci:*": {
+      "cache": true,
+      "inputs": [
+        "default",
+        "^default",
+        {
+          "env": "DB"
+        },
+        {
+          "env": "NODE_ENV"
+        }
       ]
     },
     "dev": {

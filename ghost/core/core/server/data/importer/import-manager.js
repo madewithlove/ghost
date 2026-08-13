@@ -18,12 +18,14 @@ const MarkdownHandler = require('./handlers/markdown');
 const ContentFileImporter = require('./importers/content-file-importer');
 const RevueImporter = require('./importers/importer-revue');
 const DataImporter = require('./importers/data');
-const urlUtils = require('../../../shared/url-utils');
+const urlUtils = require('../../../shared/url-utils').default;
 const {GhostMailer} = require('../../services/mail');
 const jobManager = require('../../services/jobs');
-const mediaStorage = require('../../adapters/storage').getStorage('media');
-const imageStorage = require('../../adapters/storage').getStorage('images');
-const fileStorage = require('../../adapters/storage').getStorage('files');
+const adapterManager = require('../../services/adapter-manager').default;
+
+const mediaStorage = adapterManager.getAdapter('storage:media');
+const imageStorage = adapterManager.getAdapter('storage:images');
+const fileStorage = adapterManager.getAdapter('storage:files');
 
 const {emailTemplate} = require('./email-template');
 const ghostMailer = new GhostMailer();
@@ -529,7 +531,8 @@ class ImportManager {
             return importResult;
         } catch (err) {
             logging.error(err, 'Content import was unsuccessful');
-            importResult = {data: {errors: [err]}};
+            const errorDetails = err.errorDetails || [err];
+            importResult = {data: {errors: errorDetails}};
         } finally {
             // Step 5: Cleanup any files
             await this.cleanUp();

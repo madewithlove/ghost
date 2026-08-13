@@ -5,8 +5,7 @@ const errors = require('@tryghost/errors');
 const sinon = require('sinon');
 const testUtils = require('../../../utils');
 const knex = require('../../../../core/server/data/db').knex;
-const urlService = require('../../../../core/server/services/url');
-const models = require('../../../../core/server/models');
+const {Post} = require('../../../../core/server/models/post');
 const security = require('@tryghost/security');
 
 describe('Unit: models/post', function () {
@@ -36,7 +35,7 @@ describe('Unit: models/post', function () {
                 query.response([]);
             });
 
-            return models.Post.findPage({
+            return Post.findPage({
                 filter: 'tags:[photo, video]+id:-' + testUtils.filterData.data.posts[3].id,
                 limit: 3,
                 withRelated: ['tags']
@@ -72,7 +71,7 @@ describe('Unit: models/post', function () {
                 query.response([]);
             });
 
-            return models.Post.findPage({
+            return Post.findPage({
                 filter: 'authors:[leslie,pat]+(tag:hash-audio,feature_image:-null)',
                 withRelated: ['authors', 'tags']
             }).then(() => {
@@ -107,7 +106,7 @@ describe('Unit: models/post', function () {
                 query.response([]);
             });
 
-            return models.Post.findPage({
+            return Post.findPage({
                 filter: 'published_at:>\'2015-07-20\'',
                 limit: 5,
                 withRelated: ['tags']
@@ -139,7 +138,7 @@ describe('Unit: models/post', function () {
                 query.response([]);
             });
 
-            return models.Post.findPage({
+            return Post.findPage({
                 filter: 'published_at:>\'2015-07-20\'',
                 limit: 1,
                 skipPagination: true,
@@ -166,7 +165,7 @@ describe('Unit: models/post', function () {
                 query.response([]);
             });
 
-            return models.Post.findPage({
+            return Post.findPage({
                 filter: 'published_at:>\'2015-07-20\'',
                 limit: -5,
                 page: -2,
@@ -195,7 +194,7 @@ describe('Unit: models/post', function () {
                     query.response([]);
                 });
 
-                return models.Post.findPage({
+                return Post.findPage({
                     filter: 'primary_tag:photo',
                     withRelated: ['tags']
                 }).then(() => {
@@ -228,7 +227,7 @@ describe('Unit: models/post', function () {
                     query.response([]);
                 });
 
-                return models.Post.findPage({
+                return Post.findPage({
                     filter: 'primary_author:leslie',
                     withRelated: ['authors']
                 }).then(() => {
@@ -263,7 +262,7 @@ describe('Unit: models/post', function () {
                     query.response([]);
                 });
 
-                return models.Post.findPage({
+                return Post.findPage({
                     filter: 'status:[published,draft]',
                     limit: 'all',
                     status: 'published',
@@ -291,7 +290,7 @@ describe('Unit: models/post', function () {
 
     describe('toJSON', function () {
         const toJSON = function toJSON(model, options) {
-            return new models.Post(model).toJSON(options);
+            return new Post(model).toJSON(options);
         };
 
         it('ensure mobiledoc revisions are never exposed', function () {
@@ -327,14 +326,14 @@ describe('Unit: models/post', function () {
                 status: 'published'
             };
 
-            const filter = new models.Post().extraFilters(options);
+            const filter = new Post().extraFilters(options);
             assert.equal(filter, 'status:published');
         });
     });
 
     describe('enforcedFilters', function () {
         const enforcedFilters = function enforcedFilters(model, options) {
-            return new models.Post(model).enforcedFilters(options);
+            return new Post(model).enforcedFilters(options);
         };
 
         it('returns published status filter for public context', function () {
@@ -364,7 +363,7 @@ describe('Unit: models/post', function () {
 
     describe('defaultFilters', function () {
         const defaultFilters = function defaultFilters(model, options) {
-            return new models.Post(model).defaultFilters(options);
+            return new Post(model).defaultFilters(options);
         };
 
         it('returns no default filter for internal context', function () {
@@ -404,7 +403,7 @@ describe('Unit: models/post', function () {
 
     describe('countRelations', function () {
         it('can include all count relations', function () {
-            return models.Post.findAll({withRelated: ['count.signups', 'count.paid_conversions', 'count.clicks', 'count.sentiment', 'count.negative_feedback', 'count.positive_feedback']});
+            return Post.findAll({withRelated: ['count.signups', 'count.paid_conversions', 'count.clicks', 'count.sentiment', 'count.negative_feedback', 'count.positive_feedback']});
         });
     });
 });
@@ -412,7 +411,6 @@ describe('Unit: models/post', function () {
 describe('Unit: models/post: uses database (@TODO: fix me)', function () {
     beforeEach(function () {
         sinon.stub(security.password, 'hash').resolves('$2a$10$we16f8rpbrFZ34xWj0/ZC.LTPUux8ler7bcdTs5qIleN6srRHhilG');
-        sinon.stub(urlService, 'getUrlByResourceId');
     });
 
     afterEach(function () {
@@ -439,7 +437,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
 
                     await assert.rejects(
                         async () => {
-                            await models.Post.permissible(
+                            await Post.permissible(
                                 mockPostObj,
                                 'edit',
                                 context,
@@ -466,7 +464,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -491,7 +489,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -518,7 +516,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
                     mockPostObj.get.withArgs('status').returns('draft');
 
-                    const result = await models.Post.permissible(
+                    const result = await Post.permissible(
                         mockPostObj,
                         'edit',
                         context,
@@ -546,7 +544,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -573,7 +571,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -599,7 +597,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.get.withArgs('status').returns('draft');
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
-                    return models.Post.permissible(
+                    return Post.permissible(
                         mockPostObj,
                         'edit',
                         context,
@@ -626,7 +624,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     const unsafeAttrs = {status: 'published', authors: [{id: 1}]};
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'add',
                             context,
@@ -649,7 +647,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     const unsafeAttrs = {status: 'draft', authors: [{id: 2}]};
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'add',
                             context,
@@ -672,7 +670,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     const unsafeAttrs = {status: 'draft', authors: [{id: 2}]};
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'add',
                             context,
@@ -694,7 +692,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     const context = {user: 1};
                     const unsafeAttrs = {status: 'draft', authors: [{id: 1}]};
 
-                    const result = await models.Post.permissible(
+                    const result = await Post.permissible(
                         mockPostObj,
                         'add',
                         context,
@@ -721,7 +719,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'destroy',
                             context,
@@ -748,7 +746,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.get.withArgs('status').returns('published');
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'destroy',
                             context,
@@ -774,7 +772,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.get.withArgs('status').returns('draft');
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
-                    return models.Post.permissible(
+                    return Post.permissible(
                         mockPostObj,
                         'destroy',
                         context,
@@ -806,7 +804,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 2}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -834,7 +832,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -861,7 +859,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -888,7 +886,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'edit',
                             context,
@@ -913,7 +911,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
 
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
-                    return models.Post.permissible(
+                    return Post.permissible(
                         mockPostObj,
                         'edit',
                         context,
@@ -937,7 +935,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     const unsafeAttrs = {authors: [{id: 2}]};
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'add',
                             context,
@@ -963,7 +961,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                     mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
                     await assert.rejects(
-                        models.Post.permissible(
+                        Post.permissible(
                             mockPostObj,
                             'add',
                             context,
@@ -992,7 +990,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                 mockPostObj.related.withArgs('authors').returns({models: [{id: 2}]});
 
                 await assert.rejects(
-                    models.Post.permissible(
+                    Post.permissible(
                         mockPostObj,
                         'edit',
                         context,
@@ -1015,7 +1013,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                 const context = {user: 1};
                 const unsafeAttrs = {authors: [{id: 2}]};
 
-                return models.Post.permissible(
+                return Post.permissible(
                     mockPostObj,
                     'edit',
                     context,
@@ -1040,7 +1038,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                 mockPostObj.get.withArgs('visibility').returns('paid');
                 mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
-                await models.Post.permissible(
+                await Post.permissible(
                     mockPostObj,
                     'edit',
                     context,
@@ -1065,7 +1063,7 @@ describe('Unit: models/post: uses database (@TODO: fix me)', function () {
                 mockPostObj.get.withArgs('visibility').returns('paid');
                 mockPostObj.related.withArgs('authors').returns({models: [{id: 1}]});
 
-                await models.Post.permissible(
+                await Post.permissible(
                     mockPostObj,
                     'edit',
                     context,

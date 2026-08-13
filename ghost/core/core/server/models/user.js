@@ -6,13 +6,13 @@ const limitService = require('../services/limits');
 const tpl = require('@tryghost/tpl');
 const errors = require('@tryghost/errors');
 const security = require('@tryghost/security');
-const {pipeline} = require('@tryghost/promise');
 const validatePassword = require('../lib/validate-password');
 const permissions = require('../services/permissions');
-const urlUtils = require('../../shared/url-utils');
+const urlUtils = require('../../shared/url-utils').default;
 const {setIsRoles} = require('./role-utils');
 const activeStates = ['active', 'warn-1', 'warn-2', 'warn-3', 'warn-4'];
 const ASSIGNABLE_ROLES = ['Administrator', 'Super Editor', 'Editor', 'Author', 'Contributor'];
+const DEFAULT_ACCESSIBILITY_PREFERENCES = JSON.stringify({nightShift: 'system'});
 
 const messages = {
     valueCannotBeBlank: 'Value in [{tableName}.{columnKey}] cannot be blank.',
@@ -141,17 +141,19 @@ User = ghostBookshelf.Model.extend({
     },
 
     onDestroyed: function onDestroyed(model, options) {
-        ghostBookshelf.Model.prototype.onDestroyed.apply(this, arguments);
+        const result = ghostBookshelf.Model.prototype.onDestroyed.apply(this, arguments);
 
         if (activeStates.includes(model.previous('status'))) {
             model.emitChange('deactivated', options);
         }
 
         model.emitChange('deleted', options);
+
+        return result;
     },
 
     onCreated: function onCreated(model, options) {
-        ghostBookshelf.Model.prototype.onCreated.apply(this, arguments);
+        const result = ghostBookshelf.Model.prototype.onCreated.apply(this, arguments);
 
         model.emitChange('added', options);
 
@@ -159,10 +161,12 @@ User = ghostBookshelf.Model.extend({
         if (!model.get('status') || activeStates.includes(model.get('status'))) {
             model.emitChange('activated', options);
         }
+
+        return result;
     },
 
     onUpdated: function onUpdated(model, options) {
-        ghostBookshelf.Model.prototype.onUpdated.apply(this, arguments);
+        const result = ghostBookshelf.Model.prototype.onUpdated.apply(this, arguments);
 
         model.statusChanging = model.get('status') !== model.previous('status');
         model.isActive = activeStates.includes(model.get('status'));
@@ -176,6 +180,8 @@ User = ghostBookshelf.Model.extend({
         }
 
         model.emitChange('edited', options);
+
+        return result;
     },
 
     isActive: function isActive() {
@@ -565,91 +571,68 @@ User = ghostBookshelf.Model.extend({
      * @extends ghostBookshelf.Model.edit to handle returning the full object
      * **See:** [ghostBookshelf.Model.edit](base.js.html#edit)
      */
-    edit: function edit(data, unfilteredOptions) {
+    edit: async function edit(data, unfilteredOptions) {
         const options = this.filterOptions(unfilteredOptions, 'edit');
         const self = this;
-        const ops = [];
 
         if (data.roles && data.roles.length > 1) {
-            return Promise.reject(
-                new errors.ValidationError({
-                    message: tpl(messages.onlyOneRolePerUserSupported)
-                })
-            );
+            throw new errors.ValidationError({
+                message: tpl(messages.onlyOneRolePerUserSupported)
+            });
         }
 
         if (data.email) {
-            ops.push(function checkForDuplicateEmail() {
-                return self.getByEmail(data.email, options).then(function then(user) {
-                    if (user && user.id !== options.id) {
-                        return Promise.reject(new errors.ValidationError({
-                            message: tpl(messages.userUpdateError.emailIsAlreadyInUse)
-                        }));
-                    }
+            const existingUser = await self.getByEmail(data.email, options);
+            if (existingUser && existingUser.id !== options.id) {
+                throw new errors.ValidationError({
+                    message: tpl(messages.userUpdateError.emailIsAlreadyInUse)
                 });
-            });
+            }
         }
 
-        ops.push(function update() {
-            return ghostBookshelf.Model.edit.call(self, data, options).then(async (user) => {
-                let roleId;
+        const user = await ghostBookshelf.Model.edit.call(self, data, options);
 
-                if (!data.roles || !data.roles.length) {
-                    return user;
+        if (!data.roles || !data.roles.length) {
+            return user;
+        }
+
+        const roleId = data.roles[0].id || data.roles[0];
+        const roles = await user.roles().fetch();
+        let roleToAssign;
+
+        if (roles.models[0].id !== roleId) {
+            if (ASSIGNABLE_ROLES.includes(roleId)) {
+                if (roles.models[0].get('name') !== roleId) {
+                    roleToAssign = await ghostBookshelf.model('Role').findOne({
+                        name: roleId
+                    });
                 }
-
-                roleId = data.roles[0].id || data.roles[0];
-
-                return user.roles().fetch().then((roles) => {
-                    // return if the role is already assigned
-                    if (roles.models[0].id === roleId) {
-                        return;
-                    }
-
-                    if (ASSIGNABLE_ROLES.includes(roleId)) {
-                        // return if the role is already assigned
-                        if (roles.models[0].get('name') === roleId) {
-                            return;
-                        }
-
-                        return ghostBookshelf.model('Role').findOne({
-                            name: roleId
-                        });
-                    } else if (ObjectId.isValid(roleId)){
-                        return ghostBookshelf.model('Role').findOne({
-                            id: roleId
-                        });
-                    } else {
-                        return Promise.reject(
-                            new errors.ValidationError({
-                                message: tpl(messages.invalidRoleValue.message),
-                                context: tpl(messages.invalidRoleValue.context),
-                                help: tpl(messages.invalidRoleValue.help)
-                            })
-                        );
-                    }
-                }).then((roleToAssign) => {
-                    if (roleToAssign && roleToAssign.get('name') === 'Owner') {
-                        return Promise.reject(
-                            new errors.ValidationError({
-                                message: tpl(messages.methodDoesNotSupportOwnerRole)
-                            })
-                        );
-                    } else if (roleToAssign) {
-                        // assign all other roles
-                        return user.roles().updatePivot({role_id: roleToAssign.id});
-                    }
-                }).then(() => {
-                    options.status = 'all';
-                    return self.findOne({id: user.id}, options);
-                }).then((model) => {
-                    model._changed = user._changed;
-                    return model;
+            } else if (ObjectId.isValid(roleId)) {
+                roleToAssign = await ghostBookshelf.model('Role').findOne({
+                    id: roleId
                 });
-            });
-        });
+            } else {
+                throw new errors.ValidationError({
+                    message: tpl(messages.invalidRoleValue.message),
+                    context: tpl(messages.invalidRoleValue.context),
+                    help: tpl(messages.invalidRoleValue.help)
+                });
+            }
+        }
 
-        return pipeline(ops);
+        if (roleToAssign && roleToAssign.get('name') === 'Owner') {
+            throw new errors.ValidationError({
+                message: tpl(messages.methodDoesNotSupportOwnerRole)
+            });
+        } else if (roleToAssign) {
+            // assign all other roles
+            await user.roles().updatePivot({role_id: roleToAssign.id});
+        }
+
+        options.status = 'all';
+        const model = await self.findOne({id: user.id}, options);
+        model._changed = user._changed;
+        return model;
     },
 
     /**
@@ -694,6 +677,10 @@ User = ghostBookshelf.Model.extend({
          */
         roles = data.roles;
         delete data.roles;
+
+        if (!options.importing && typeof userData.accessibility === 'undefined') {
+            userData.accessibility = DEFAULT_ACCESSIBILITY_PREFERENCES;
+        }
 
         return ghostBookshelf.Model.add.call(self, userData, options)
             .then(function then(addedUser) {
@@ -773,6 +760,10 @@ User = ghostBookshelf.Model.extend({
         }
 
         userData.slug = null;
+        if (typeof userData.accessibility === 'undefined') {
+            userData.accessibility = DEFAULT_ACCESSIBILITY_PREFERENCES;
+        }
+
         return self.edit(userData, options);
     },
 

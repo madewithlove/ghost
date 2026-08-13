@@ -1,11 +1,6 @@
 const _ = require('lodash');
-const errors = require('@tryghost/errors');
 const debug = require('@tryghost/debug')('api:endpoints:utils:serializers:input:members');
 const mapNQLKeyValues = require('@tryghost/nql').utils.mapKeyValues;
-
-const ACTIVE_STRIPE_CUSTOMERS_COUNT_FILTER = 'count.active_stripe_customers';
-const MULTIPLE_ACTIVE_STRIPE_CUSTOMERS_FILTER = `${ACTIVE_STRIPE_CUSTOMERS_COUNT_FILTER}:>1`;
-const ACTIVE_STRIPE_CUSTOMERS_COUNT_FILTER_PATTERN = /(^|[+(,])count\.active_stripe_customers(?=:)/;
 
 function defaultRelations(frame) {
     if (frame.options.withRelated) {
@@ -36,25 +31,16 @@ function mapSubscribedFlagToNewsletterRelation(frame) {
     });
 }
 
-function extractActiveStripeCustomersCountFilter(frame) {
-    const filterString = frame.options.filter;
-
-    if (!filterString || !filterString.includes(ACTIVE_STRIPE_CUSTOMERS_COUNT_FILTER)) {
+// Values are not a member relation — they're stored per field type and read by
+// the custom fields service — so `include=custom_fields` must not reach the model
+// layer as something to eager-load. Lift it out and leave a flag browse can act on.
+function liftCustomFieldsInclude(frame) {
+    if (!frame.options.withRelated.includes('custom_fields')) {
         return;
     }
 
-    if (!ACTIVE_STRIPE_CUSTOMERS_COUNT_FILTER_PATTERN.test(filterString)) {
-        return;
-    }
-
-    if (filterString !== MULTIPLE_ACTIVE_STRIPE_CUSTOMERS_FILTER) {
-        throw new errors.BadRequestError({
-            message: `The ${ACTIVE_STRIPE_CUSTOMERS_COUNT_FILTER} filter only supports ${MULTIPLE_ACTIVE_STRIPE_CUSTOMERS_FILTER}.`
-        });
-    }
-
-    frame.options.activeStripeCustomersCount = true;
-    delete frame.options.filter;
+    frame.options.withRelated = frame.options.withRelated.filter(relation => relation !== 'custom_fields');
+    frame.options.includeCustomFields = true;
 }
 
 module.exports = {
@@ -62,6 +48,8 @@ module.exports = {
         if (!frame.options.withRelated) {
             return;
         }
+
+        liftCustomFieldsInclude(frame);
 
         frame.options.withRelated = frame.options.withRelated.map((relation) => {
             if (relation === 'tiers') {
@@ -74,7 +62,6 @@ module.exports = {
     browse(apiConfig, frame) {
         debug('browse');
         defaultRelations(frame);
-        extractActiveStripeCustomersCountFilter(frame);
         mapSubscribedFlagToNewsletterRelation(frame);
 
         if (!frame.options.order) {
@@ -136,7 +123,6 @@ module.exports = {
 
     bulkEdit(apiConfig, frame) {
         debug('bulkEdit');
-        extractActiveStripeCustomersCountFilter(frame);
         mapSubscribedFlagToNewsletterRelation(frame);
     },
 

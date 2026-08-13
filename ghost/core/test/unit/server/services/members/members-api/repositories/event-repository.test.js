@@ -227,6 +227,70 @@ describe('EventRepository', function () {
         });
     });
 
+    describe('attribution event queries', function () {
+        // The lazy URL service needs the attributed post's relations to
+        // build its URL; a bare postAttribution row is rejected as thin.
+        function makeRepository(modelName, requiredRelations = ['tags', 'authors']) {
+            const fake = sinon.fake.resolves({data: [], meta: {}});
+            const eventRepository = new EventRepository({
+                EmailRecipient: null,
+                MemberSubscribeEvent: null,
+                MemberPaymentEvent: null,
+                MemberStatusEvent: null,
+                MemberLoginEvent: null,
+                MemberPaidSubscriptionEvent: null,
+                labsService: null,
+                urlService: {getRequiredRelations: () => requiredRelations},
+                [modelName]: {findPage: fake}
+            });
+            return {eventRepository, fake};
+        }
+
+        it('getSignupEvents loads the attributed post relations', async function () {
+            const {eventRepository, fake} = makeRepository('MemberCreatedEvent');
+
+            await eventRepository.getSignupEvents({}, {});
+
+            sinon.assert.calledOnceWithMatch(fake, {
+                withRelated: sinon.match.array.contains(['postAttribution', 'postAttribution.tags', 'postAttribution.authors'])
+            });
+        });
+
+        it('getDonationEvents loads the attributed post relations', async function () {
+            const {eventRepository, fake} = makeRepository('DonationPaymentEvent');
+
+            await eventRepository.getDonationEvents({}, {});
+
+            sinon.assert.calledOnceWithMatch(fake, {
+                withRelated: sinon.match.array.contains(['postAttribution', 'postAttribution.tags', 'postAttribution.authors'])
+            });
+        });
+
+        it('getSubscriptionEvents loads the attributed post relations', async function () {
+            const {eventRepository, fake} = makeRepository('MemberPaidSubscriptionEvent');
+
+            await eventRepository.getSubscriptionEvents({}, {});
+
+            sinon.assert.calledOnceWithMatch(fake, {
+                withRelated: sinon.match.array.contains([
+                    'subscriptionCreatedEvent.postAttribution',
+                    'subscriptionCreatedEvent.postAttribution.tags',
+                    'subscriptionCreatedEvent.postAttribution.authors'
+                ])
+            });
+        });
+
+        it('loads no extra relations when the URL service requires none', async function () {
+            const {eventRepository, fake} = makeRepository('MemberCreatedEvent', []);
+
+            await eventRepository.getSignupEvents({}, {});
+
+            const withRelated = fake.getCall(0).args[0].withRelated;
+            assert.ok(!withRelated.includes('postAttribution.tags'));
+            assert.ok(withRelated.includes('postAttribution'));
+        });
+    });
+
     describe('getEmailFailedEvents', function () {
         let eventRepository;
         let fake;
@@ -298,10 +362,22 @@ describe('EventRepository', function () {
     describe('getAutomatedEmailSentEvents', function () {
         let eventRepository;
         let fake;
+        let fakeKnex;
+        let models;
+        let automationActionRevisionSubject;
 
-        beforeAll(function () {
-            fake = sinon.fake.returns({data: [{
+        const makeAutomatedEmailRecipient = ({
+            automatedEmailId = 'ae123',
+            automationActionRevisionId = null
+        } = {}) => {
+            return {
                 get: (key) => {
+                    if (key === 'automated_email_id') {
+                        return automatedEmailId;
+                    }
+                    if (key === 'automation_action_revision_id') {
+                        return automationActionRevisionId;
+                    }
                     if (key === 'member_id') {
                         return '123';
                     }
@@ -313,22 +389,46 @@ describe('EventRepository', function () {
                     if (relation === 'member') {
                         return {toJSON: () => ({id: '123', email: 'test@example.com'})};
                     }
-                    if (relation === 'automatedEmail') {
-                        return {
-                            id: 'ae123',
-                            related: (rel) => {
-                                if (rel === 'automation') {
-                                    return {
-                                        id: 'auto123',
-                                        get: key => (key === 'slug' ? 'member-welcome-email-free' : undefined)
-                                    };
-                                }
-                            }
-                        };
-                    }
                 },
                 id: 'aer123'
-            }]});
+            };
+        };
+
+        beforeAll(function () {
+            models = [makeAutomatedEmailRecipient()];
+            automationActionRevisionSubject = 'Here is how to get started';
+            fake = sinon.fake(() => ({data: models}));
+            fakeKnex = sinon.fake((tableName) => {
+                return {
+                    select() {
+                        return this;
+                    },
+                    innerJoin() {
+                        return this;
+                    },
+                    whereIn(_column, ids) {
+                        if (tableName === 'welcome_email_automated_emails as email') {
+                            return [{
+                                id: ids[0],
+                                slug: 'member-welcome-email-free',
+                                name: 'Free member welcome flow',
+                                subject: 'Welcome to the free tier'
+                            }];
+                        }
+
+                        if (tableName === 'automation_action_revisions as revision') {
+                            return [{
+                                id: ids[0],
+                                slug: 'member-welcome-email-free',
+                                name: 'New member onboarding',
+                                subject: automationActionRevisionSubject
+                            }];
+                        }
+
+                        return [];
+                    }
+                };
+            });
             eventRepository = new EventRepository({
                 EmailRecipient: null,
                 MemberSubscribeEvent: null,
@@ -341,10 +441,14 @@ describe('EventRepository', function () {
                     findPage: fake
                 }
             });
+            eventRepository._knex = fakeKnex;
         });
 
         afterEach(function () {
+            models = [makeAutomatedEmailRecipient()];
+            automationActionRevisionSubject = 'Here is how to get started';
             fake.resetHistory();
+            fakeKnex.resetHistory();
         });
 
         it('works when setting no filters', async function () {
@@ -356,7 +460,7 @@ describe('EventRepository', function () {
             });
 
             sinon.assert.calledOnceWithMatch(fake, {
-                withRelated: ['member', 'automatedEmail.automation'],
+                withRelated: ['member'],
                 filter: 'custom:true',
                 order: 'created_at desc, id desc'
             });
@@ -370,7 +474,7 @@ describe('EventRepository', function () {
             });
 
             sinon.assert.calledOnceWithMatch(fake, {
-                withRelated: ['member', 'automatedEmail.automation'],
+                withRelated: ['member'],
                 filter: 'custom:true',
                 order: 'created_at desc, id desc'
             });
@@ -385,7 +489,7 @@ describe('EventRepository', function () {
             });
 
             sinon.assert.calledOnceWithMatch(fake, {
-                withRelated: ['member', 'automatedEmail.automation'],
+                withRelated: ['member'],
                 filter: 'custom:true',
                 order: 'created_at desc, id desc'
             });
@@ -406,256 +510,60 @@ describe('EventRepository', function () {
                     member: {id: '123', email: 'test@example.com'},
                     automatedEmail: {
                         id: 'ae123',
-                        slug: 'member-welcome-email-free'
+                        source: 'automated_email',
+                        slug: 'member-welcome-email-free',
+                        name: 'Free member welcome flow',
+                        subject: 'Welcome to the free tier'
                     }
                 }
             });
         });
-    });
 
-    describe('getGiftPurchaseEvents', function () {
-        let eventRepository;
-        let fake;
+        it('returns correctly formatted automated_email_sent_event for automation action revision rows', async function () {
+            models = [makeAutomatedEmailRecipient({
+                automatedEmailId: null,
+                automationActionRevisionId: 'aar123'
+            })];
 
-        beforeAll(function () {
-            fake = sinon.fake.returns({data: [{
-                toJSON: () => ({
-                    id: 'gift123',
-                    buyer_member_id: 'member456',
-                    buyer: {id: 'member456', name: 'Test Buyer', email: 'buyer@example.com'},
-                    tier: {name: 'Silver'},
-                    amount: 5000,
-                    currency: 'usd',
-                    cadence: 'year',
-                    duration: 1,
-                    purchased_at: '2024-06-15T12:00:00.000Z',
-                    token: 'secret-token',
-                    stripe_checkout_session_id: 'cs_123',
-                    stripe_payment_intent_id: 'pi_123',
-                    status: 'purchased'
-                })
-            }]});
-            eventRepository = new EventRepository({
-                EmailRecipient: null,
-                MemberSubscribeEvent: null,
-                MemberPaymentEvent: null,
-                MemberStatusEvent: null,
-                MemberLoginEvent: null,
-                MemberPaidSubscriptionEvent: null,
-                labsService: null,
-                Gift: {
-                    findPage: fake
-                }
-            });
-        });
-
-        afterEach(function () {
-            fake.resetHistory();
-        });
-
-        it('queries with correct options', async function () {
-            await eventRepository.getGiftPurchaseEvents({
-                filter: 'not used',
-                order: 'created_at desc, id desc'
-            }, {
-                type: 'unused'
-            });
-
-            sinon.assert.calledOnceWithMatch(fake, {
-                withRelated: ['buyer', 'tier'],
-                filter: 'buyer_member_id:-null+custom:true',
-                order: 'purchased_at desc, id desc'
-            });
-        });
-
-        it('returns correctly formatted gift_event', async function () {
-            const result = await eventRepository.getGiftPurchaseEvents({
+            const result = await eventRepository.getAutomatedEmailSentEvents({
                 order: 'created_at desc, id desc'
             }, {});
 
             assert.equal(result.data.length, 1);
-
-            const event = result.data[0];
-
-            assert.equal(event.type, 'gift_purchase_event');
-            assert.equal(event.data.id, 'gift123');
-            assert.equal(event.data.amount, 5000);
-            assert.equal(event.data.currency, 'usd');
-            assert.equal(event.data.tier_name, 'Silver');
-            assert.equal(event.data.cadence, 'year');
-            assert.equal(event.data.duration, 1);
-            assert.equal(event.data.member_id, 'member456');
-            assert.equal(event.data.created_at, '2024-06-15T12:00:00.000Z');
-            assert.deepEqual(event.data.member, {
-                id: 'member456',
-                name: 'Test Buyer',
-                email: 'buyer@example.com'
-            });
-        });
-
-        it('excludes internal fields from event data', async function () {
-            const result = await eventRepository.getGiftPurchaseEvents({}, {});
-
-            const event = result.data[0];
-
-            assert.equal(event.data.token, undefined);
-            assert.equal(event.data.stripe_checkout_session_id, undefined);
-            assert.equal(event.data.stripe_payment_intent_id, undefined);
-            assert.equal(event.data.status, undefined);
-        });
-
-        it('sets member to null when buyer is not present', async function () {
-            const nullBuyerFake = sinon.fake.returns({data: [{
-                toJSON: () => ({
-                    id: 'gift789',
-                    buyer_member_id: null,
-                    buyer: null,
-                    amount: 3000,
-                    currency: 'eur',
-                    purchased_at: '2024-07-01T12:00:00.000Z'
-                })
-            }]});
-            const repo = new EventRepository({
-                EmailRecipient: null,
-                MemberSubscribeEvent: null,
-                MemberPaymentEvent: null,
-                MemberStatusEvent: null,
-                MemberLoginEvent: null,
-                MemberPaidSubscriptionEvent: null,
-                labsService: null,
-                Gift: {
-                    findPage: nullBuyerFake
-                }
-            });
-
-            const result = await repo.getGiftPurchaseEvents({}, {});
-            const event = result.data[0];
-
-            assert.equal(event.data.member, null);
-            assert.equal(event.data.member_id, null);
-        });
-    });
-
-    describe('getGiftRedemptionEvents', function () {
-        let eventRepository;
-        let fake;
-
-        beforeAll(function () {
-            fake = sinon.fake.returns({data: [{
-                toJSON: () => ({
-                    id: 'gift123',
-                    redeemer_member_id: 'member789',
-                    redeemer: {id: 'member789', name: 'Test Redeemer', email: 'redeemer@example.com'},
-                    tier: {name: 'Gold'},
-                    amount: 5000,
-                    currency: 'usd',
-                    cadence: 'year',
-                    duration: 1,
-                    redeemed_at: '2024-08-20T09:30:00.000Z',
-                    token: 'secret-token',
-                    stripe_checkout_session_id: 'cs_123',
-                    stripe_payment_intent_id: 'pi_123',
-                    status: 'redeemed'
-                })
-            }]});
-            eventRepository = new EventRepository({
-                EmailRecipient: null,
-                MemberSubscribeEvent: null,
-                MemberPaymentEvent: null,
-                MemberStatusEvent: null,
-                MemberLoginEvent: null,
-                MemberPaidSubscriptionEvent: null,
-                labsService: null,
-                Gift: {
-                    findPage: fake
+            assert.deepEqual(result.data[0], {
+                type: 'automated_email_sent_event',
+                data: {
+                    id: 'aer123',
+                    member_id: '123',
+                    created_at: new Date('2024-01-01'),
+                    member: {id: '123', email: 'test@example.com'},
+                    automatedEmail: {
+                        id: 'aar123',
+                        source: 'automation_action_revision',
+                        slug: 'member-welcome-email-free',
+                        name: 'New member onboarding',
+                        subject: 'Here is how to get started'
+                    }
                 }
             });
         });
 
-        afterEach(function () {
-            fake.resetHistory();
-        });
+        it('throws when an automation action revision row has no subject', async function () {
+            models = [makeAutomatedEmailRecipient({
+                automatedEmailId: null,
+                automationActionRevisionId: 'aar123'
+            })];
+            automationActionRevisionSubject = null;
 
-        it('queries with correct options', async function () {
-            await eventRepository.getGiftRedemptionEvents({
-                filter: 'not used',
-                order: 'created_at desc, id desc'
-            }, {
-                type: 'unused'
-            });
-
-            sinon.assert.calledOnceWithMatch(fake, {
-                withRelated: ['redeemer', 'tier'],
-                filter: 'redeemer_member_id:-null+custom:true',
-                order: 'redeemed_at desc, id desc'
-            });
-        });
-
-        it('returns correctly formatted gift_redemption_event', async function () {
-            const result = await eventRepository.getGiftRedemptionEvents({
-                order: 'created_at desc, id desc'
-            }, {});
-
-            assert.equal(result.data.length, 1);
-
-            const event = result.data[0];
-
-            assert.equal(event.type, 'gift_redemption_event');
-            assert.equal(event.data.id, 'gift123');
-            assert.equal(event.data.amount, 5000);
-            assert.equal(event.data.currency, 'usd');
-            assert.equal(event.data.tier_name, 'Gold');
-            assert.equal(event.data.cadence, 'year');
-            assert.equal(event.data.duration, 1);
-            assert.equal(event.data.member_id, 'member789');
-            assert.equal(event.data.created_at, '2024-08-20T09:30:00.000Z');
-            assert.deepEqual(event.data.member, {
-                id: 'member789',
-                name: 'Test Redeemer',
-                email: 'redeemer@example.com'
-            });
-        });
-
-        it('excludes internal fields from event data', async function () {
-            const result = await eventRepository.getGiftRedemptionEvents({}, {});
-
-            const event = result.data[0];
-
-            assert.equal(event.data.token, undefined);
-            assert.equal(event.data.stripe_checkout_session_id, undefined);
-            assert.equal(event.data.stripe_payment_intent_id, undefined);
-            assert.equal(event.data.status, undefined);
-        });
-
-        it('sets member to null when redeemer is not present', async function () {
-            const nullRedeemerFake = sinon.fake.returns({data: [{
-                toJSON: () => ({
-                    id: 'gift999',
-                    redeemer_member_id: null,
-                    redeemer: null,
-                    amount: 3000,
-                    currency: 'eur',
-                    redeemed_at: '2024-09-01T12:00:00.000Z'
-                })
-            }]});
-            const repo = new EventRepository({
-                EmailRecipient: null,
-                MemberSubscribeEvent: null,
-                MemberPaymentEvent: null,
-                MemberStatusEvent: null,
-                MemberLoginEvent: null,
-                MemberPaidSubscriptionEvent: null,
-                labsService: null,
-                Gift: {
-                    findPage: nullRedeemerFake
+            await assert.rejects(
+                () => eventRepository.getAutomatedEmailSentEvents({
+                    order: 'created_at desc, id desc'
+                }, {}),
+                {
+                    name: 'InternalServerError',
+                    message: 'Automated email recipient aer123 has no associated automation email subject'
                 }
-            });
-
-            const result = await repo.getGiftRedemptionEvents({}, {});
-            const event = result.data[0];
-
-            assert.equal(event.data.member, null);
-            assert.equal(event.data.member_id, null);
+            );
         });
     });
 

@@ -1,4 +1,6 @@
-const adapterManager = require('../../services/adapter-manager');
+// adapter-manager is TypeScript as of v6.57.1 and exports the singleton as a
+// default export, so the interop wrapper has to be unwrapped here.
+const adapterManager = require('../../services/adapter-manager').default;
 
 /**
  * Get an email adapter instance

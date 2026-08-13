@@ -33,21 +33,29 @@ class Mailgun extends EmailProviderBase {
             // Initialize Mailgun client (shared between email and analytics)
             const mailgunClient = new MailgunClient({
                 config: configService,
-                settings: settingsCache,
-                labs
+                settings: settingsCache
             });
 
             // Initialize the existing email provider
             this.#emailProvider = new MailgunEmailProvider({
                 mailgunClient,
+                config: configService,
                 errorHandler
             });
+
+            // As of Ghost v6.57.1 the analytics provider no longer derives its own
+            // tags, so the caller supplies them. This reproduces the defaults it
+            // used to build internally.
+            const tags = ['bulk-email'];
+            if (configService.get('bulkEmail:mailgun:tag')) {
+                tags.push(configService.get('bulkEmail:mailgun:tag'));
+            }
 
             // Initialize the existing analytics provider
             this.#analyticsProvider = new EmailAnalyticsProviderMailgun({
                 config: configService,
                 settings: settingsCache,
-                labs
+                tags
             });
         }
     }

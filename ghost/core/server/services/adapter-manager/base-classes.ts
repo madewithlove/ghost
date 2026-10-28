@@ -9,7 +9,7 @@ import { UpgradeBase } from '@tryghost/adapter-base-upgrade';
 // @ts-expect-error This module lacks type definitions.
 import EmailProviderBase from '../../adapters/email/EmailProviderBase';
 
-import type { BaseClassMap } from './adapter-manager';
+import type { BaseClassMap } from '../../../kernel/adapter-manager';
 
 /**
  * The base class every adapter of a given type must extend. Also read by

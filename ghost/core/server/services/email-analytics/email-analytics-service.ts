@@ -75,6 +75,7 @@ export type EmailAnalyticsFetchResult = {
  */
 export type EmailAnalyticsProvider = {
   fetchLatest: (
+    // oxlint-disable-next-line ghost/no-any-in-exported-types -- Provider event shapes vary per adapter; the batch processor declares the fields it reads.
     batchHandler: (events: any[]) => Promise<void>,
     options: {
       begin: Date;

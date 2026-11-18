@@ -37,6 +37,11 @@
   {
     "rule": "service-dependencies",
     "from": "ghost/core/server/services/adapter-manager/base-classes.ts",
+    "to": "ghost/core/server/adapters/email/EmailProviderBase.js"
+  },
+  {
+    "rule": "service-dependencies",
+    "from": "ghost/core/server/services/adapter-manager/base-classes.ts",
     "to": "packages/adapters/cache-base/src/index.ts"
   },
   {
@@ -161,6 +166,21 @@
   },
   {
     "rule": "service-dependencies",
+    "from": "ghost/core/server/services/email-analytics/email-analytics-service-wrapper.ts",
+    "to": "ghost/core/server/adapters/email/index.js"
+  },
+  {
+    "rule": "service-dependencies",
+    "from": "ghost/core/server/services/email-analytics/email-analytics-service-wrapper.ts",
+    "to": "ghost/core/shared/labs.js"
+  },
+  {
+    "rule": "service-dependencies",
+    "from": "ghost/core/server/services/email-analytics/email-analytics-service-wrapper.ts",
+    "to": "ghost/core/shared/sentry.js"
+  },
+  {
+    "rule": "service-dependencies",
     "from": "ghost/core/server/services/email-analytics/email-analytics-service.ts",
     "to": "@tryghost/logging"
   },
@@ -247,6 +267,16 @@
   {
     "rule": "service-dependencies",
     "from": "ghost/core/server/services/email-service/email-service-wrapper.js",
+    "to": "@tryghost/logging"
+  },
+  {
+    "rule": "service-dependencies",
+    "from": "ghost/core/server/services/email-service/email-service-wrapper.js",
+    "to": "ghost/core/server/adapters/email/index.js"
+  },
+  {
+    "rule": "service-dependencies",
+    "from": "ghost/core/server/services/email-service/email-service-wrapper.js",
     "to": "ghost/core/server/adapters/storage/utils.ts"
   },
   {
@@ -273,11 +303,6 @@
     "rule": "service-dependencies",
     "from": "ghost/core/server/services/email-service/email-service-wrapper.js",
     "to": "ghost/core/server/lib/lexical.js"
-  },
-  {
-    "rule": "service-dependencies",
-    "from": "ghost/core/server/services/email-service/email-service-wrapper.js",
-    "to": "ghost/core/server/lib/mailgun/mailgun-client.js"
   },
   {
     "rule": "service-dependencies",

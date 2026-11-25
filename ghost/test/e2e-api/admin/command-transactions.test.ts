@@ -4,12 +4,26 @@ import { portsOf } from '@tryghost/checkout';
 import { CUSTOM_NAMESPACE, KeySchema } from '@tryghost/metafield-types/identity';
 
 // Required rather than imported, so the test shares the module instances Ghost boots with.
-const { agentProvider, fixtureManager } = require('../../utils/e2e-framework');
+const { agentProvider, fixtureManager, mockManager } = require('../../utils/e2e-framework');
 const models = require('../../../core/server/models');
 const metafields: typeof import('../../../core/server/services/members-metafields') = require('../../../core/server/services/members-metafields');
 const giftLinks: typeof import('../../../core/server/services/gift-links') = require('../../../core/server/services/gift-links');
 const stripeCheckoutConfig: typeof import('../../../core/server/services/stripe-checkout-config') = require('../../../core/server/services/stripe-checkout-config');
 const tiers: typeof import('../../../core/server/services/tiers') = require('../../../core/server/services/tiers');
+const segments: typeof import('../../../core/server/services/segments') = require('../../../core/server/services/segments');
+const {
+  SegmentFilter,
+  SegmentName,
+}: typeof import('../../../core/server/services/segments/models') = require('../../../core/server/services/segments/models');
+const {
+  SegmentsService,
+}: typeof import('../../../core/server/services/segments/service') = require('../../../core/server/services/segments/service');
+const {
+  segmentsTracking,
+}: typeof import('../../../core/server/services/segments/tracking') = require('../../../core/server/services/segments/tracking');
+const {
+  tracer,
+}: typeof import('../../../core/server/lib/tracing') = require('../../../core/server/lib/tracing');
 
 /** Runs a command on the connection or transaction it is given, or on its own when given none. */
 type Run = (executor?: Knex) => Promise<unknown>;
@@ -47,7 +61,7 @@ describe('Commands and transactions', function () {
   let postId: string;
   let context: { actor: { id: string; type: 'user'; viaApiKey: boolean } };
 
-  const HISTORY = ['gift_link', 'member_custom_field', 'stripe_checkout_config'];
+  const HISTORY = ['gift_link', 'member_custom_field', 'segment', 'stripe_checkout_config'];
   const PHONE_PORT = portsOf('phone')[0];
   const SHIPPING = {
     shipping: {
@@ -88,6 +102,16 @@ describe('Commands and transactions', function () {
       metafields.ADMIN,
     );
     return { memberId, planned };
+  }
+
+  const newSegment = () => ({
+    name: SegmentName.parse('VIP'),
+    filter: SegmentFilter.parse('label:vip'),
+  });
+
+  /** Adds a segment in a transaction of its own, and returns its id. */
+  async function addSegment(): Promise<string> {
+    return (await segments.default.service.add(context, newSegment())).id;
   }
 
   // Every row of each table, in an order that doesn't depend on how the database returns them.
@@ -279,6 +303,32 @@ describe('Commands and transactions', function () {
           stripeCheckoutConfig.default.service.config.edit(context, SHIPPING, executor);
       },
     },
+    {
+      name: 'segments: add',
+      tables: ['segments'],
+      recorded: true,
+      arrange: async () => (executor) =>
+        segments.default.service.add(context, newSegment(), executor),
+    },
+    {
+      name: 'segments: edit',
+      tables: ['segments'],
+      recorded: true,
+      arrange: async () => {
+        const id = await addSegment();
+        const rename = { name: SegmentName.parse('Gold') };
+        return (executor) => segments.default.service.edit(context, id, rename, executor);
+      },
+    },
+    {
+      name: 'segments: destroy',
+      tables: ['segments'],
+      recorded: true,
+      arrange: async () => {
+        const id = await addSegment();
+        return (executor) => segments.default.service.destroy(context, id, executor);
+      },
+    },
   ];
 
   beforeAll(async function () {
@@ -301,6 +351,7 @@ describe('Commands and transactions', function () {
     await knex('post_gift_links').del();
     await knex('gift_links').del();
     await knex('members').where('email', 'commands@example.com').del();
+    await knex('segments').del();
     await knex('actions').whereIn('resource_type', HISTORY).del();
   });
 
@@ -591,6 +642,29 @@ describe('Commands and transactions', function () {
         };
       },
     },
+    {
+      name: 'segments: browse',
+      arrange: async () => ({
+        change: (trx) => segments.default.service.add(context, newSegment(), trx),
+        read: (executor) => segments.default.service.browse(executor),
+      }),
+    },
+    {
+      name: 'segments: read',
+      arrange: async () => {
+        let id = 'not-added-yet';
+        return {
+          change: async (trx) => {
+            id = (await segments.default.service.add(context, newSegment(), trx)).id;
+          },
+          read: (executor) =>
+            segments.default.service.read(id, executor).then(
+              (segment) => segment.name,
+              () => 'not found',
+            ),
+        };
+      },
+    },
   ];
 
   describe.each(queries)('$name', function ({ arrange }) {
@@ -610,6 +684,59 @@ describe('Commands and transactions', function () {
       );
 
       assert.deepEqual(await read(), before);
+    });
+  });
+
+  // A segment write records History in the same transaction.
+  describe('segments: History', function () {
+    afterEach(function () {
+      mockManager.restore();
+    });
+
+    it('records nothing when the transaction it joined is rolled back', async function () {
+      const recordedBefore = await recordedCount();
+
+      const trx = await knex.transaction();
+      await segments.default.service.add(context, newSegment(), trx);
+      await trx.rollback(new Error('The caller failed'));
+      await trx.executionPromise.catch(() => {});
+
+      assert.deepEqual(await segments.default.service.browse(), []);
+      assert.equal(await recordedCount(), recordedBefore);
+    });
+
+    it('records the change when the transaction it joined commits', async function () {
+      const recordedBefore = await recordedCount();
+
+      await knex.transaction((trx) => segments.default.service.add(context, newSegment(), trx));
+
+      assert.deepEqual(
+        (await segments.default.service.browse()).map((segment) => segment.name),
+        ['VIP'],
+      );
+      assert.equal(await recordedCount(), recordedBefore + 1);
+    });
+
+    it('rolls the change back when the function it reports the change to fails', async function () {
+      const metrics = mockManager.mockMetrics();
+      const failing = new SegmentsService({
+        knex,
+        tracking: segmentsTracking({ tracer }),
+        onSegmentUpdated: async () => {
+          throw new Error('Reporting the change failed');
+        },
+      });
+
+      await assert.rejects(failing.add(context, newSegment()), /Reporting the change failed/);
+
+      assert.deepEqual(await segments.default.service.browse(), []);
+      // The span fails without a rejection, so a dashboard counts it as a failure.
+      await vi.waitFor(() =>
+        expect(metrics.tracked('segments.add')).toMatchObject([
+          { event: { outcome: 'failure' }, error: { type: 'Error' } },
+        ]),
+      );
+      assert.deepEqual(metrics.tracked('segments.add')[0].labels, {});
     });
   });
 });

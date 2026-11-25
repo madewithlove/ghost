@@ -101,7 +101,9 @@ describe('RouterController', function () {
     settingsHelpers = {
       getMembersSupportAddress: sinon.stub().returns('noreply@example.com'),
       arePaidMembersEnabled: sinon.stub().returns(true),
+      isStripeConnected: sinon.stub().returns(true),
       areDonationsEnabled: sinon.stub().returns(true),
+      isMembersInviteOnly: sinon.stub().returns(false),
     };
   });
 
@@ -1371,6 +1373,31 @@ describe('RouterController', function () {
         }
       });
 
+      it('throws DisabledFeatureError on invite-only sites', async function () {
+        const controller = createGiftController({
+          tiersService: paidTierService(),
+          settingsHelpers: {
+            ...settingsHelpers,
+            isMembersInviteOnly: sinon.stub().returns(true),
+          },
+        });
+
+        await assert.rejects(
+          controller.createCheckoutSession(
+            {
+              body: { type: 'gift', tierId: 'tier_123', cadence: 'month', metadata: {} },
+            },
+            mockRes,
+          ),
+          (error) => {
+            assert(error instanceof errors.DisabledFeatureError);
+            assert.equal(error.message, 'This site is invite-only, contact the owner for access.');
+            return true;
+          },
+        );
+        sinon.assert.notCalled(giftService.service.startCheckout);
+      });
+
       it('does not block paid members from purchasing gifts', async function () {
         const controller = createGiftController({
           tiersService: paidTierService(),
@@ -1843,6 +1870,7 @@ describe('RouterController', function () {
     it('does not add welcomePageUrl to response when tier has no welcomePageURL', async function () {
       const routerController = new RouterController({
         tracking,
+        settingsHelpers,
         tiersService: {
           api: {
             read: sinon.stub().resolves({

@@ -20,7 +20,7 @@ import memberWelcomeEmails from '../member-welcome-emails';
 
 type AutomationsServiceOptions = {
   apiUrl: string;
-  domainEvents: Pick<DomainEvents, 'dispatch' | 'subscribe'>;
+  domainEvents: Pick<typeof DomainEvents, 'dispatch' | 'subscribe'>;
   internalKeys: InternalKeys;
   schedulerAdapter: Pick<SchedulerAdapter, 'schedule' | 'register'>;
   siteUuid: unknown;
@@ -72,8 +72,9 @@ export class AutomationsService {
 
       soonestTimer.scheduleAt(date);
 
+      const schedulerPollTime = getSchedulerPollTime(date, siteIdentifier);
+
       try {
-        const schedulerPollTime = getSchedulerPollTime(date, siteIdentifier);
         const key = await internalKeys.get('ghost-scheduler');
         await schedulerAdapter.schedule(
           buildSignedJob({
@@ -125,7 +126,7 @@ export class AutomationsService {
 
     schedulerAdapter.register(this);
 
-    enqueuePollAt(new Date());
+    enqueuePollNow();
 
     this.#enqueuePollAt = enqueuePollAt;
   }

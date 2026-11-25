@@ -107,24 +107,8 @@ async function initCore({ ghostServer, config }) {
   // Limit image processing to the configured image formats before anything
   // can process an image
   debug('Begin: image upload config');
-  const { restrictImageDecoders } = require('./server/lib/image/image-decoders');
-  const {
-    IMAGE_UPLOAD_TYPES,
-    getIgnoredImageContentTypes,
-  } = require('./server/lib/image/image-content');
-  const uploads = config.get('uploads');
-  restrictImageDecoders(IMAGE_UPLOAD_TYPES.flatMap((type) => uploads[type]?.extensions ?? []));
-
-  // Image uploads can only be stored as image types, so point out any
-  // configured types that will be ignored
-  for (const type of IMAGE_UPLOAD_TYPES) {
-    const ignored = getIgnoredImageContentTypes(uploads[type]?.contentTypes ?? []);
-    if (ignored.length > 0) {
-      require('@tryghost/logging').warn(
-        `Ignoring uploads.${type}.contentTypes that are not image types: ${ignored.join(', ')}`,
-      );
-    }
-  }
+  const { applyImageUploadConfig } = require('./server/lib/image/image-upload-config');
+  applyImageUploadConfig(config.get('uploads'));
   debug('End: image upload config');
 
   // URL Utils is a bit slow, put it here so the timing is visible separate from models
@@ -163,7 +147,7 @@ async function initCore({ ghostServer, config }) {
 
   // Reads admin_session_secret, so it follows settings. Under legacy nothing loads
   // Better Auth itself.
-  if (config.get('auth:engine') === 'better-auth') {
+  if (require('./server/auth').isBetterAuth) {
     debug('Begin: Better Auth');
     await require('./server/auth').betterAuth.init();
     debug('End: Better Auth');
@@ -382,7 +366,6 @@ async function initServices({ ghostServer, config, prometheusClient, jobsService
   const stripe = require('./server/services/stripe');
   const members = require('./server/services/members');
   const tiers = require('./server/services/tiers').default;
-  const permissions = require('./server/services/permissions');
   const indexnow = require('./server/services/indexnow-ping').default;
   const upgrades = require('./server/services/upgrades').default;
   const slack = require('./server/services/slack-ping').default;
@@ -412,6 +395,8 @@ async function initServices({ ghostServer, config, prometheusClient, jobsService
   const explorePingService = require('./server/services/explore-ping').default;
   const users = require('./server/services/users').default;
   const memberWelcomeEmails = require('./server/services/member-welcome-emails').default;
+  const editorPresence = require('./server/services/editor-presence').default;
+  const segments = require('./server/services/segments').default;
   const domainEvents = require('@tryghost/domain-events');
   const { automationsService } = require('./server/services/automations');
   const automationsApi = require('./server/services/automations/automations-api');
@@ -465,7 +450,6 @@ async function initServices({ ghostServer, config, prometheusClient, jobsService
     tagsPublic.init(),
     postsPublic.init(),
     membersEvents.init(),
-    permissions.init(),
     indexnow.init(),
     upgrades.init(),
     slack.init(),
@@ -493,7 +477,9 @@ async function initServices({ ghostServer, config, prometheusClient, jobsService
     recommendationsService.init(),
     explorePingService.init(),
     users.init(),
+    editorPresence.init(),
     machinePaymentsService.init(),
+    segments.init(),
   ]);
   if (ghostServer) {
     // Each releases what its start acquired; the next boot in this process starts it again.
@@ -536,11 +522,12 @@ async function initServices({ ghostServer, config, prometheusClient, jobsService
     contentImport,
     updateCheck,
     signingKeys: signingKeys.service,
+    authCleanup: require('./server/auth/better-auth/cleanup'),
   });
   await jobsService.start();
   debug('End: Register job handlers');
 
-  await automationsService.init({
+  automationsService.init({
     domainEvents,
     apiUrl,
     schedulerAdapter,
@@ -555,6 +542,21 @@ async function initServices({ ghostServer, config, prometheusClient, jobsService
   debug('End: Services');
 
   debug('End: initServices');
+}
+
+/**
+ * Runs one background startup step, logging its failure instead of throwing, so that a step
+ * which fails cannot stop the steps after it.
+ * @param {() => unknown} step
+ * @returns {Promise<void>}
+ */
+async function runIsolated(step) {
+  try {
+    await step();
+  } catch (err) {
+    const logging = require('@tryghost/logging');
+    logging.error(err);
+  }
 }
 
 /**
@@ -577,14 +579,16 @@ async function initBackgroundServices({ config }) {
     return;
   }
 
+  const jobsService = require('./server/services/jobs-service').getInstance();
+
   // Resume any newsletter sends interrupted by a prior container shutdown.
   // Runs before activitypub.init so an activitypub failure can't disable recovery.
-  try {
-    const emailService = require('./server/services/email-service');
-    await emailService.service.resumeInterruptedSends();
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
+  // An outbox that keeps jobs until they settle hands interrupted sends over
+  // again itself, and this scan can't tell whether another process owns a send.
+  if (!jobsService.keepsJobsUntilSettled()) {
+    await runIsolated(() =>
+      require('./server/services/email-service').service.resumeInterruptedSends(),
+    );
   }
 
   // Retry gift deliveries interrupted by a prior shutdown. Not awaited: recovery
@@ -592,56 +596,20 @@ async function initBackgroundServices({ config }) {
   const giftService = require('./server/services/gifts');
   giftService.recoverPendingDeliveries();
 
-  const jobsService = require('./server/services/jobs-service').getInstance();
-
-  // Runs before activitypub.init for the same reason as the send recovery
-  // above: gifts would otherwise go uncleaned for the life of the process
-  // if an unrelated background service fails.
-  try {
-    const giftJobs = require('./server/services/gifts/jobs');
-    await giftJobs.scheduleGiftCleanupJob(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
-  }
-
-  // Runs before activitypub.init for the same reason as the gift cleanup
-  // above: reminders would otherwise go unsent for the life of the process
-  // if an unrelated background service fails.
-  try {
-    const giftJobs = require('./server/services/gifts/jobs');
-    await giftJobs.scheduleGiftReminderJob(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
-  }
-
-  // Runs before activitypub.init for the same reason as the gift cleanup
-  // above: tokens and expired comped subscriptions would otherwise go
-  // uncleaned for the life of the process if an unrelated background
-  // service fails.
-  try {
-    const memberJobs = require('./server/services/members/jobs');
-    await memberJobs.scheduleTokenCleanupJob(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
-  }
-
-  try {
-    const memberJobs = require('./server/services/members/jobs');
-    await memberJobs.scheduleExpiredCompCleanupJob(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
-  }
-
-  try {
-    const signingKeys = require('./server/services/signing-keys').default;
-    await signingKeys.extras.scheduleCheckJob(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
+  // These run before activitypub.init for the same reason as the send recovery above: gifts,
+  // reminders, tokens, expired comped subscriptions, signing keys and expired auth rows would
+  // otherwise go unhandled for the life of the process if an unrelated background service fails.
+  // Each is scheduled in turn and isolated from the others.
+  const jobsBeforeActivityPub = [
+    () => require('./server/services/gifts/jobs').scheduleGiftCleanupJob(jobsService),
+    () => require('./server/services/gifts/jobs').scheduleGiftReminderJob(jobsService),
+    () => require('./server/services/members/jobs').scheduleTokenCleanupJob(jobsService),
+    () => require('./server/services/members/jobs').scheduleExpiredCompCleanupJob(jobsService),
+    () => require('./server/services/signing-keys').default.extras.scheduleCheckJob(jobsService),
+    () => require('./server/auth/better-auth/cleanup').scheduleClearExpiredJob(jobsService),
+  ];
+  for (const scheduleJob of jobsBeforeActivityPub) {
+    await runIsolated(scheduleJob);
   }
 
   // Load email analytics recurring jobs. Runs before activitypub.init for the
@@ -663,23 +631,15 @@ async function initBackgroundServices({ config }) {
     }
   }
 
-  const activitypub = require('./server/services/activitypub');
-  await activitypub.init();
+  // Isolated like the jobs around it: a failed start is logged and the work below still starts.
+  await runIsolated(() => require('./server/services/activitypub').init());
 
-  try {
-    const tinybirdSync = require('./server/services/tinybird-sync');
-    await tinybirdSync.scheduleJob(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
-  }
-
-  try {
-    const updateCheck = require('./server/services/update-check');
-    await updateCheck.scheduleJobs(jobsService);
-  } catch (err) {
-    const logging = require('@tryghost/logging');
-    logging.error(err);
+  const jobsAfterActivityPub = [
+    () => require('./server/services/tinybird-sync').scheduleJob(jobsService),
+    () => require('./server/services/update-check').scheduleJobs(jobsService),
+  ];
+  for (const scheduleJob of jobsAfterActivityPub) {
+    await runIsolated(scheduleJob);
   }
 
   // Remote feature-flag overrides (config-gated; inert unless explicitly configured).

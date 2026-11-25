@@ -12,14 +12,15 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  RowPrimaryAction,
 } from '@tryghost/shade/components';
 import { Inline } from '@tryghost/shade/primitives';
 import { LucideIcon } from '@tryghost/shade/utils';
 import { Link } from '@tryghost/admin-x-framework';
 import type { AppInstallation } from '@tryghost/admin-x-framework/api/app-installations';
 import { AppIcon } from './app-icon';
+import { PinMenuItem } from './pin-menu-item';
 import { appDetailsRoute, appReviewRoute, appRoute } from '@/apps/lib/routes';
-import { openRowLink, openRowLinkInNewTab } from '@/apps/lib/row-link';
 import type { AppPinsState } from '@/apps/lib/use-app-pins';
 
 interface AppsListProps {
@@ -40,8 +41,6 @@ const AppsList: React.FC<AppsListProps> = ({ installations, onUninstall, pins })
               key={id}
               className="cursor-pointer hover:bg-table-row-hover"
               data-testid="apps-list-row"
-              onAuxClick={openRowLinkInNewTab}
-              onClick={openRowLink}
             >
               <TableHead
                 className="h-auto p-4 text-left text-base font-normal tracking-normal text-foreground"
@@ -51,9 +50,11 @@ const AppsList: React.FC<AppsListProps> = ({ installations, onUninstall, pins })
                   <AppIcon app={installation} size="lg" />
                   <span className="min-w-0">
                     <Inline gap="xs">
-                      <Link className="text-md font-semibold" to={appRoute(id)}>
-                        {manifest.name}
-                      </Link>
+                      <RowPrimaryAction asChild>
+                        <Link className="text-md font-semibold" to={appRoute(id)}>
+                          {manifest.name}
+                        </Link>
+                      </RowPrimaryAction>
                       {manifest.development && <Badge variant="secondary">Development</Badge>}
                       {status === 'suspended' && (
                         <Badge data-testid="app-needs-approval-badge" variant="warning">
@@ -62,13 +63,13 @@ const AppsList: React.FC<AppsListProps> = ({ installations, onUninstall, pins })
                       )}
                       <span className="text-sm text-muted-foreground">{manifest.author.name}</span>
                     </Inline>
-                    <span className="block max-w-2xl text-balance text-muted-foreground">
+                    <span className="relative z-10 block max-w-2xl text-balance text-muted-foreground">
                       {manifest.description}
                     </span>
                   </span>
                 </Inline>
               </TableHead>
-              <TableCell className="p-4">
+              <TableCell className="relative z-10 p-4">
                 <Inline gap="xs" justify="end">
                   {/* The row opens the app, so only an app waiting for approval gets a button. */}
                   {status === 'suspended' && (
@@ -95,13 +96,11 @@ const AppsList: React.FC<AppsListProps> = ({ installations, onUninstall, pins })
                         </Link>
                       </DropdownMenuItem>
                       {pins && (
-                        <DropdownMenuItem
-                          disabled={!pins.isPinned(id) && !pins.canPinMore}
-                          onSelect={() => pins.setPinned(id, !pins.isPinned(id))}
-                        >
-                          {pins.isPinned(id) ? <LucideIcon.PinOff /> : <LucideIcon.Pin />}
-                          {pins.isPinned(id) ? 'Unpin from sidebar' : 'Pin to sidebar'}
-                        </DropdownMenuItem>
+                        <PinMenuItem
+                          full={!pins.canPinMore}
+                          pinned={pins.isPinned(id)}
+                          onPinnedChange={(pinned) => pins.setPinned(id, pinned)}
+                        />
                       )}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem

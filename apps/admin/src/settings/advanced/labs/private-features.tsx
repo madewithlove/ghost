@@ -1,7 +1,7 @@
 import FeatureToggle from './feature-toggle';
 import LabItem from './lab-item';
 import React, { useEffect, useState } from 'react';
-import { ActionList } from '@tryghost/shade/components';
+import { List } from '@tryghost/shade/components';
 import { HostLimitError } from '@tryghost/admin-x-framework/errors';
 import { useLimiter } from '@tryghost/admin-x-framework/hooks';
 
@@ -43,6 +43,11 @@ const features: Feature[] = [
     title: 'Admin 7 · Design',
     description: 'Preview the floating Admin 7 sidebar and its navigation layout.',
     flag: 'admin7Design',
+  },
+  {
+    title: 'Admin 7 · Mobile hardening',
+    description: 'Preview responsive Admin improvements, independently of Admin 7 · Design.',
+    flag: 'admin7Mobile',
   },
   {
     title: 'Admin 7 · Customize from View site',
@@ -91,10 +96,27 @@ const features: Feature[] = [
     flag: 'apps',
   },
   {
-    title: 'In-app support',
+    title: 'Editor presence polling',
     description:
-      'Open Help in a sidebar inside Admin instead of a new tab. Needs a host script that provides the support app.',
-    flag: 'inAppSupport',
+      'Record which staff have a post open in the editor and poll for it. Shows nothing yet.',
+    flag: 'editorPresencePolling',
+  },
+  {
+    title: 'Editor presence indicators',
+    description:
+      'Show who else has a post or page open, in the editor header and on list rows. Needs editor presence polling.',
+    flag: 'editorPresence',
+  },
+  {
+    title: 'Editor lease',
+    description:
+      'Let one editor tab at a time edit a post or page. Others open it read-only and can take over. Needs editor presence polling.',
+    flag: 'editorLease',
+  },
+  {
+    title: 'Comments analytics',
+    description: 'Show comment volume, top posts and top commenters beside the comments list.',
+    flag: 'commentsAnalytics',
   },
 ];
 
@@ -126,7 +148,7 @@ const AlphaFeatures: React.FC = () => {
   }, [limiter]);
 
   return (
-    <ActionList>
+    <List>
       {allowedFeatures.map((feature) => (
         <LabItem
           key={feature.flag}
@@ -135,7 +157,7 @@ const AlphaFeatures: React.FC = () => {
           title={feature.title}
         />
       ))}
-    </ActionList>
+    </List>
   );
 };
 

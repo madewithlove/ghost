@@ -97,6 +97,7 @@ export class JobsService {
   readonly #queues = new Map<string, QueueDeclaration>();
   readonly #notReplayed = new Set<string>();
   #leaseTimer?: ReturnType<typeof setTimeout>;
+  #staleCheckDueAt = 0;
   #leaseTick?: Promise<void>;
 
   constructor({ backend, logging, sentry, outbox, logOutboxUnavailable }: JobsServiceOptions) {
@@ -128,6 +129,10 @@ export class JobsService {
       this.#notReplayed.add(type);
     }
     this.#registry.set(type, (payload) => handler(new JobClass(JSON.parse(payload))));
+  }
+
+  handles(type: string): boolean {
+    return this.#registry.has(type);
   }
 
   #declareQueue(type: string, options?: JobHandlingOptions): void {
@@ -246,6 +251,9 @@ export class JobsService {
     });
     if (this.#outbox) {
       await this.#releaseSubmitted(this.#outbox);
+      // Rows a previous run of this process held have all gone stale one
+      // lease after it stopped
+      this.#staleCheckDueAt = Date.now() + this.#outbox.leaseMs;
       this.#outbox.relay.start();
       this.#scheduleLease(this.#outbox);
     } else if (this.#logOutboxUnavailable) {
@@ -267,6 +275,12 @@ export class JobsService {
     );
   }
 
+  // True when the outbox keeps each job's row until the job settles, so a job
+  // a restart or crash cut short is handed over again
+  keepsJobsUntilSettled(): boolean {
+    return this.#outboxMode() === 'retain';
+  }
+
   // Only the store that keeps rows until settlement gets a tracker
   #outboxMode(): 'off' | 'on' | 'retain' {
     if (!this.#outbox) {
@@ -278,7 +292,7 @@ export class JobsService {
   // A row nobody has renewed within the lease belongs to a process that has
   // stopped, so its job may be lost. Live processes keep renewing their rows,
   // so this is safe with several processes per site.
-  async #releaseSubmitted({ store, leaseMs }: JobsOutboxWiring): Promise<void> {
+  async #releaseSubmitted({ store, relay, leaseMs }: JobsOutboxWiring): Promise<void> {
     const { released, dropped } = await store.releaseSubmitted({
       replays: (type) => !this.#notReplayed.has(type),
       staleAfterMs: leaseMs,
@@ -286,7 +300,7 @@ export class JobsService {
     if (dropped.length > 0) {
       this.#logging.info(
         { system: { event: 'jobs_outbox.dropped', count: dropped.length, rows: dropped } },
-        `[Jobs Outbox] Dropped ${dropped.length} submitted rows whose job types recover on their own`,
+        `[Jobs Outbox] Dropped ${dropped.length} submitted rows whose job types are not replayed after a restart`,
       );
     }
     if (released.length > 0) {
@@ -294,6 +308,7 @@ export class JobsService {
         { system: { event: 'jobs_outbox.released', count: released.length, rows: released } },
         `[Jobs Outbox] Released ${released.length} submitted rows to hand over again`,
       );
+      relay.wake();
     }
   }
 
@@ -317,7 +332,17 @@ export class JobsService {
       if (held.length > 0) {
         await outbox.store.renew(held);
       }
-      await this.#releaseSubmitted(outbox);
+      // An idle process checks rarely, so its pooled connection can close
+      // between checks; one holding jobs checks every tick
+      const due = Date.now() >= this.#staleCheckDueAt;
+      if (held.length > 0 || due) {
+        await this.#releaseSubmitted(outbox);
+        // Only a due check that ran pushes the next one back, so a failed one
+        // is retried on the next tick and a busy tick keeps it on time
+        if (due) {
+          this.#staleCheckDueAt = Date.now() + outbox.pollIntervalMs;
+        }
+      }
     } catch (error) {
       this.#logging.error('[Jobs Outbox] renewing or releasing submitted rows failed', error);
       this.#sentry?.captureException(error);

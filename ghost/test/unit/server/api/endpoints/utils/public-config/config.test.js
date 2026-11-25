@@ -26,6 +26,7 @@ const allowedKeys = [
   'signupForm',
   'security',
   'auth',
+  'cardVisibility',
 ];
 
 describe('Public-config response builders', function () {
@@ -47,10 +48,26 @@ describe('Public-config response builders', function () {
       assert.deepEqual(Object.keys(configProperties), allowedKeys);
     });
 
+    it('should list the cards whose visibility this server supports', function () {
+      const { cardVisibility } = getConfigProperties();
+      for (const nodeType of [
+        'html',
+        'call-to-action',
+        'image',
+        'gallery',
+        'video',
+        'audio',
+        'file',
+      ]) {
+        assert(cardVisibility.includes(nodeType), `expected ${nodeType} in cardVisibility`);
+      }
+      assert(!cardVisibility.includes('embed'));
+    });
+
     it('should return the auth engine outside security', function () {
       assert.deepEqual(getConfigProperties().auth, { engine: 'legacy' });
 
-      configUtils.set('auth:engine', 'better-auth');
+      configUtils.set({ 'database:client': 'mysql2', 'auth:engine': 'better-auth' });
       assert.deepEqual(getConfigProperties().auth, { engine: 'better-auth' });
     });
 

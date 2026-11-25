@@ -32,6 +32,7 @@ describe('register-job-handlers', function () {
   let contentImport: { handleJob: sinon.SinonStub };
   let updateCheck: sinon.SinonStub;
   let signingKeys: { check: sinon.SinonStub };
+  let authCleanup: { clearExpired: sinon.SinonStub };
 
   // Handlers are looked up by their job type rather than registration order,
   // so adding a handler does not silently shift which one a test exercises.
@@ -64,6 +65,7 @@ describe('register-job-handlers', function () {
     contentImport = { handleJob: sinon.stub().resolves() };
     updateCheck = sinon.stub().resolves();
     signingKeys = { check: sinon.stub().resolves() };
+    authCleanup = { clearExpired: sinon.stub().resolves() };
 
     registerJobHandlers({
       gifts: { startFetch: sinon.stub().resolves() },
@@ -82,6 +84,7 @@ describe('register-job-handlers', function () {
       contentImport,
       updateCheck,
       signingKeys,
+      authCleanup,
     });
   });
 
@@ -198,7 +201,7 @@ describe('register-job-handlers', function () {
   it('runs content-csv-import with the injected content import service', async function () {
     const job = new ContentCSVImportJob({
       importId: 'run_test',
-      file: { path: '/tmp/staged-import', name: 'posts.zip' },
+      file: { key: 'staged-import', name: 'posts.zip' },
       mapping: { Headline: 'title' },
       importTagNames: ['#Import 2026-01-01 10:30', '#Import Run run_test'],
       emailRecipient: 'owner@example.com',
@@ -263,6 +266,12 @@ describe('register-job-handlers', function () {
     signingKeys.check.rejects(error);
 
     await assert.rejects(handlerFor('check-signing-keys')({}), (thrown) => thrown === error);
+  });
+
+  it('runs clear-expired-auth-rows with the injected auth cleanup', async function () {
+    await handlerFor('clear-expired-auth-rows')({});
+
+    sinon.assert.calledOnceWithExactly(authCleanup.clearExpired);
   });
 
   it('runs process-webmention with the injected mentions controller', async function () {

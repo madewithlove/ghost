@@ -30,6 +30,7 @@ import type { TierSelection } from '@/automations/types';
 import { isTierSelectionEmpty, updateFromSelection } from '@/automations/utils/tier-selection';
 
 export type TriggerData = {
+  isActive: boolean;
   tierQuery: Pick<ReturnType<typeof useBrowseTiers>, 'data' | 'isLoading' | 'isError' | 'refetch'>;
   triggerType: AutomationTriggerRule['trigger_type'];
   rules: readonly AutomationTriggerRule[];
@@ -273,10 +274,11 @@ function getTriggerPresentation(trigger: TriggerData, errorMessage?: string) {
       };
     case 'label_added':
       return {
-        title: 'Label added to a member',
+        title: 'Label added',
         Icon: LucideIcon.Tag,
         content: (
           <LabelTriggerPicker
+            disabled={trigger.isActive}
             errorMessage={errorMessage}
             labelId={getTriggerLabelId(trigger.rules)}
             selectedLabel={trigger.selectedTriggerLabel}
@@ -308,7 +310,6 @@ export const TriggerCard: React.FC<
       aria-label={title}
       className="nodrag nopan w-[400px]"
       gap="xl"
-      onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       onFocusCapture={onInteract}
       onPointerDownCapture={onInteract}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { vi } from 'vitest';
 import type { Knex } from 'knex';
 import type { DispatchEnvelope } from '@tryghost/adapter-base-jobs';
 import { JobsOutbox } from '../../../core/server/services/jobs-service/jobs-outbox';
@@ -366,6 +367,28 @@ describe.runIf(isMySQL)('Jobs outbox + relay (MySQL)', function () {
       );
       assert.ok(after.getTime() > Date.now(), 'the bumped row is no longer eligible');
       assert.equal(await countRows(), 1, 'a rejected row is retained, never discarded');
+    });
+
+    it('stores a retry no later than its delay, so the relay never wakes before the row is eligible', async function () {
+      const id = newId();
+      await outbox.insert({ id, envelope: envelopeFor() });
+      // MySQL rounds a fractional DATETIME, so 0.7s past a second would round up
+      const requested = Math.floor(Date.now() / 1000) * 1000 + 700;
+      const now = vi.spyOn(Date, 'now').mockReturnValue(requested);
+      try {
+        await outbox.processNext(
+          async () => {
+            throw new Error('backend refused');
+          },
+          { retryDelayMs: 5000 },
+        );
+      } finally {
+        now.mockRestore();
+      }
+
+      const row = await rowById(id);
+      assert.ok(row);
+      assert.ok(row.available_at.getTime() <= requested + 5000);
     });
 
     it('does not claim a row that was already submitted', async function () {
@@ -1093,7 +1116,7 @@ describe.runIf(isMySQL)('Jobs outbox + relay (MySQL)', function () {
       assert.equal(deletes.length, 1);
     });
 
-    it('leaves a retained newsletter send to the newsletter boot scan', async function () {
+    it('hands over again a newsletter send a stopped process left', async function () {
       await knex(TABLE).insert({
         id: newId(),
         envelope: JSON.stringify(envelopeFor(SendEmailJob.type, { emailId: 'e1' })),
@@ -1108,10 +1131,24 @@ describe.runIf(isMySQL)('Jobs outbox + relay (MySQL)', function () {
       });
 
       await service.start();
+
+      assert.ok(await waitFor(() => sent.length === 1), 'the send runs again');
+      assert.equal(sent[0].emailId, 'e1');
+    });
+
+    it('leaves a row whose job type has no handler in this process for another one', async function () {
+      await knex(TABLE).insert({
+        id: newId(),
+        envelope: JSON.stringify(envelopeFor('from-a-newer-version', {})),
+        created_at: new Date(),
+        available_at: new Date(),
+      });
+      const service = initWithOutbox(true);
+
+      await service.start();
       await delay(TIMINGS.pollIntervalMs * 5);
 
-      assert.equal(await countRows(), 0, 'the row is dropped at boot');
-      assert.equal(sent.length, 0, 'and the send is not handed over again');
+      assert.equal(await countUnsubmitted(), 1, 'the row is neither handed over nor removed');
     });
 
     it('with the flag turned off, still hands over rows submitted while it was on', async function () {
